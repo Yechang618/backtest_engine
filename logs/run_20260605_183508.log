@@ -1,0 +1,20 @@
+========================================================
+🚀 开始执行回测任务 | Fri 05 Jun 2026 06:35:08 PM CST
+📂 工作目录: /data/cye_temp/workspace/backtest_engine
+🐍 执行环境: Python 3.11.15
+========================================================
+⚠️ 警告: 未找到 train 数据: /data/train_data/model_ready_panel_selected_plus_ohlc_train_2025.parquet
+⚠️ 警告: 未找到 train 数据: /data/train_data/model_ready_panel_selected_plus_ohlc_train_2026.parquet
+Compute label_30, total records: 10,754,862
+Date range in raw data: 2015-01-05 00:00:00 - 2026-03-03 00:00:00
+✅ 未发现 S_DQ_ADJCLOSE < 1e-6 的异常记录
+📈 S_DQ_ADJCLOSE 统计信息: Mean=110.514000, Var=1088252.643335, Max=152864.350000, Min=1.061000
+📊 Merge 后 NaN 统计 | S_DQ_ADJCLOSE 缺失: 0 行 | label_30 缺失: 5,504 行
+✅ 真实收益率计算完成 | 原始记录: 10,109,757 | 对齐后: 10,109,757
+📊 数据加载完成 | 形状: (10109757, 465) | 时间范围: 2016-01-04 00:00:00 - 2026-02-13 00:00:00
+
+========================================================
+🏁 回测任务结束 | Fri 05 Jun 2026 07:02:05 PM CST
+✅ 执行成功，退出码: 0
+📄 完整运行日志: /data/cye_temp/workspace/backtest_engine/logs/run_20260605_183508.log
+========================================================

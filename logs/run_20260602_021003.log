@@ -1,0 +1,30 @@
+========================================================
+🚀 开始执行回测任务 | Tue 02 Jun 2026 02:10:03 AM CST
+📂 工作目录: /data/cye_temp/workspace/backtest_engine
+🐍 执行环境: Python 3.11.15
+========================================================
+Compute label_30, total records: 10,754,862
+✅ 真实收益率计算完成 | 原始记录: 7,349,770 | 对齐后: 7,349,770
+Warning: Price for 000301.SZ is too low (0.0), skipping sell. Date: 2021-04-28 00:00:00
+Warning: Price for 000029.SZ is too low (0.0), skipping sell. Date: 2021-06-15 00:00:00
+Warning: Price for 002766.SZ is too low (0.0), skipping sell. Date: 2021-06-15 00:00:00
+Warning: Price for 002401.SZ is too low (0.0), skipping sell. Date: 2021-06-15 00:00:00
+Warning: Price for 000096.SZ is too low (0.0), skipping sell. Date: 2021-06-15 00:00:00
+Warning: Price for 000029.SZ is too low (0.0), skipping sell. Date: 2021-06-15 00:00:00
+Warning: Price for 000016.SZ is too low (0.0), skipping sell. Date: 2021-09-07 00:00:00
+Warning: Price for 000959.SZ is too low (0.0), skipping sell. Date: 2021-09-07 00:00:00
+Warning: Price for 600191.SH is too low (0.0), skipping sell. Date: 2021-09-07 00:00:00
+Warning: Price for 002092.SZ is too low (0.0), skipping sell. Date: 2022-01-21 00:00:00
+Warning: Price for 920508.BJ is too low (0.0), skipping sell. Date: 2022-06-13 00:00:00
+Warning: Price for 000655.SZ is too low (0.0), skipping sell. Date: 2022-12-06 00:00:00
+Warning: Price for 920275.BJ is too low (0.0), skipping sell. Date: 2022-12-06 00:00:00
+Warning: Price for 000017.SZ is too low (0.0), skipping sell. Date: 2023-06-06 00:00:00
+Warning: Price for 000049.SZ is too low (0.0), skipping sell. Date: 2023-12-01 00:00:00
+Warning: Price for 301102.SZ is too low (0.0), skipping sell. Date: 2023-12-01 00:00:00
+Warning: Price for 301102.SZ is too low (0.0), skipping sell. Date: 2023-12-01 00:00:00
+
+========================================================
+🏁 回测任务结束 | Tue 02 Jun 2026 03:05:48 AM CST
+✅ 执行成功，退出码: 0
+📄 完整运行日志: /data/cye_temp/workspace/backtest_engine/logs/run_20260602_021003.log
+========================================================

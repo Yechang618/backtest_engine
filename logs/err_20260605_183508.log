@@ -1,0 +1,15 @@
+2026-06-05 18:35:09,749 | INFO | 📦 加载训练面板...
+2026-06-05 18:37:44,525 | INFO | 📊 特征提取完成 | 数量: 242 | 包含模型: ['ElasticNet', 'XGBoost', 'LightGBM', 'OptSharpe', 'BuyAndHoldAll']
+2026-06-05 18:38:01,314 | INFO | BacktestEngine 初始化完成 | 模型: ['ElasticNet', 'XGBoost', 'LightGBM', 'OptSharpe', 'BuyAndHoldAll'] | 样本数: 9070966| 手续费率: 0.0200%
+2026-06-05 18:38:01,477 | INFO | 🚀 启动回测 | 交易日: 2455 | 模型: ['ElasticNet', 'XGBoost', 'LightGBM', 'OptSharpe', 'BuyAndHoldAll']
+2026-06-05 18:38:01,657 | INFO | 📦 BuyAndHoldAll 基线已建仓 | 标的数: 2054
+2026-06-05 19:02:01,704 | INFO | 🔧 ML模型重训完成 | 样本: 8748287
+2026-06-05 19:02:02,644 | INFO | 📊 进度: 2025-11-26 | 现金(EN): 360,101
+2026-06-05 19:02:04,233 | INFO | 📊 进度: 2026-02-06 | 现金(EN): 343,275
+2026-06-05 19:02:04,358 | INFO | 📝 ElasticNet 交易明细已保存: /data/cye_temp/workspace/backtest_engine/log/trades_ElasticNet.csv
+2026-06-05 19:02:04,360 | INFO | 📝 XGBoost 交易明细已保存: /data/cye_temp/workspace/backtest_engine/log/trades_XGBoost.csv
+2026-06-05 19:02:04,361 | INFO | 📝 LightGBM 交易明细已保存: /data/cye_temp/workspace/backtest_engine/log/trades_LightGBM.csv
+2026-06-05 19:02:04,363 | INFO | 📝 OptSharpe 交易明细已保存: /data/cye_temp/workspace/backtest_engine/log/trades_OptSharpe.csv
+2026-06-05 19:02:04,367 | INFO | 📝 BuyAndHoldAll 交易明细已保存: /data/cye_temp/workspace/backtest_engine/log/trades_BuyAndHoldAll.csv
+2026-06-05 19:02:04,367 | INFO | 📊 生成图表...
+2026-06-05 19:02:05,238 | INFO | ✅ 全部完成
