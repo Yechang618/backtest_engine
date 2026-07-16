@@ -8,7 +8,10 @@ from typing import List, Dict
 
 def load_panel_data(data_root: str, data_test_root: str, years: List[int], file_prefix: str = "train", load_train: bool = True, load_test: bool = True) -> pd.DataFrame:
     dfs = []
-    
+    if data_root is not None and load_train:
+        print(f"Loading training data from: {data_root} | Years: {years} | File prefix: {file_prefix}")
+    if data_test_root is not None and load_test:
+        print(f"Loading test data from: {data_test_root}")
     # 1. 加载训练集
     if load_train and data_root:
         for y in years:
@@ -58,15 +61,17 @@ def extract_valid_features(df: pd.DataFrame) -> List[str]:
     return valid_features
 
 def compute_real_returns(raw_panel_path: str, panel: pd.DataFrame, i: int) -> pd.DataFrame:
-    # target = 'S_DQ_ADJCLOSE'
-    target = 'S_DQ_CLOSE'
+    target = 'S_DQ_ADJCLOSE'
+    # target = 'S_DQ_CLOSE'
     raw = pd.read_parquet(raw_panel_path, columns=['S_INFO_WINDCODE', 'TRADE_DT', target])
+    print(f"Loaded target: {target} from {raw_panel_path} | shape: {raw.shape}")
     raw['TRADE_DT'] = pd.to_datetime(raw['TRADE_DT'].astype(str), format='%Y%m%d')
     raw = raw.sort_values(['S_INFO_WINDCODE', 'TRADE_DT'])
     raw[f'label_{i}'] = raw.groupby('S_INFO_WINDCODE')[target].pct_change().shift(-i)
     ret_df = raw[['S_INFO_WINDCODE', 'TRADE_DT', target, f'label_{i}']].copy()
     ret_df[target] = ret_df.groupby('S_INFO_WINDCODE')[target].ffill()
     merged = panel.merge(ret_df, on=['S_INFO_WINDCODE', 'TRADE_DT'], how='left')
+    print(f"Merged panel with real returns | shape: {merged.shape} | columns: {merged.columns.tolist()}")
     merged[target] = merged[target].ffill()
     return merged
 

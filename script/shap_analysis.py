@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 # 🔑 修复：引入 compute_real_returns 以生成标签列
-from util.data_loader import extract_valid_features, compute_ic_ir, compute_real_returns
+from util.data_loader import extract_valid_features, compute_ic_ir, compute_real_returns, load_panel_data
 from config.Config import Config
 
 # 尝试导入模型和 SHAP 库
@@ -43,6 +43,14 @@ def load_train_data_only(cfg: Config) -> pd.DataFrame:
             dfs.append(df_y)
         else:
             logging.warning(f"⚠️ 未找到训练数据: {path}")
+
+    df = load_panel_data(None, cfg.DATA_DIR, list(range(2016, 2025)), file_prefix="train", load_train=True, load_test=True)
+    # dfs.append(df)
+    # df = compute_real_returns(cfg.RAW_PANEL, df, i=cfg.REBALANCE_DAYS)
+    # Get df from 2016 to 2024
+    df = df[(df['TRADE_DT'] >= pd.to_datetime('2015-06-01')) & (df['TRADE_DT'] <= pd.to_datetime('2024-07-31'))].copy()
+    dfs.append(df)
+    # feature_cols = extract_valid_features(df)
             
     if not dfs:
         raise FileNotFoundError(f"在 {cfg.DATA_DIR} 中未找到任何训练集 parquet 文件")
@@ -82,7 +90,7 @@ def run_quarterly_analysis(cfg: Config):
     """执行按季度的 IC/IR 与 SHAP 值分析"""
     logging.info("📦 开始加载全量训练集数据...")
     df = load_train_data_only(cfg)
-    
+    print(f"Column names: {df.columns.tolist()}")
     # 🔑 核心修复：计算 T+REBALANCE_DAYS 的真实收益率作为标签
     logging.info(f"🧮 计算真实收益率标签 label_{cfg.REBALANCE_DAYS}...")
     df = compute_real_returns(cfg.RAW_PANEL, df, i=cfg.REBALANCE_DAYS)

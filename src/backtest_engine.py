@@ -10,10 +10,15 @@ from .backtest_core import PortfolioManager
 logger = logging.getLogger(__name__)
 
 class BacktestEngine:
-    def __init__(self, df: pd.DataFrame, config, trainers: dict, label_col: str = 'label_1'):
+    def __init__(self, df: pd.DataFrame, config, trainers: dict, label_col: str = 'label_1', ablation=False):
         self.df = df[df['FEATURE_MASK'] == 1].copy()
         self.cfg = config
-        self.feature_cols = config.FEATURE_COLS
+        self.ablation = ablation
+        if self.ablation:
+            self.feature_cols = config.FEATURE_SELECTED
+        else:
+            self.feature_cols = config.FEATURE_COLS
+        print(f"🔧 BacktestEngine 初始化 | 样本数: {len(self.df)} | 特征数: {len(self.feature_cols)} | 标签列: {label_col}")
         self.label_col = label_col
         self.portfolios = {m: PortfolioManager(config.INITIAL_CAPITAL, config.COMMISSION_RATE) for m in config.MODELS}
         self.returns_history = defaultdict(list)
@@ -61,10 +66,19 @@ class BacktestEngine:
         prev_prices = {}
         logger.info(f"🚀 启动样本外回测 | 交易日: {len(dates)} | 模型已冻结")
 
+        # Test print
+        print_test = True
         for date in dates:
             daily = grouped.get_group(date).set_index('S_INFO_WINDCODE').copy()
             # price_dict: {code: adj_close_price} 用于更新投资组合价值和计算日收益率
-            price_dict = daily['S_DQ_ADJCLOSE'].to_dict()
+            # Target = 'S_DQ_ADJCLOSE' if 'S_DQ_ADJCLOSE' in daily.columns else 'S_DQ_CLOSE'
+            Target = 'S_DQ_ADJCLOSE' 
+            if print_test and 'S_DQ_ADJCLOSE' not in daily.columns:
+                print(f"Date: {date.strftime('%Y-%m-%d')} | Sample daily data shape: {daily.shape} | Target column: {Target}")
+                print(f"Sample rows:\n{daily.head(3)}")
+                print_test = False
+            # price_dict = daily['S_DQ_ADJCLOSE'].to_dict()
+            price_dict = daily[Target].to_dict()
             day_cnt += 1
 
             for code in daily.index:

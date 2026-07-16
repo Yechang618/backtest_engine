@@ -1,10 +1,17 @@
 # /data/cye_temp/workspace/backtest_engine/script/shap_analysis.py
 import json
 import os
+import sys  
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+print(f"🔧 Backtest Engine Root: {ROOT}")
+sys.path.insert(0, str(ROOT))
+from config.Config import Config
 
 # 🔧 配置中文字体，防止标题或标签显示为方块 (兼容 Linux/Mac/Windows)
 plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'Arial Unicode MS', 'DejaVu Sans']
@@ -53,6 +60,7 @@ def load_and_preprocess_data(out_dir):
 def plot_visualizations(shap_dfs, ic_df, fig_dir):
     """针对每个模型生成 3 张核心图表"""
     os.makedirs(fig_dir, exist_ok=True)
+
     
     for model, shap_df in shap_dfs.items():
         print(f"\n🎨 正在为模型 [{model}] 生成可视化图表...")
@@ -133,12 +141,22 @@ def plot_visualizations(shap_dfs, ic_df, fig_dir):
 
 def main():
     # 自动推断 output 目录
-    root_dir = Path(__file__).resolve().parents[1]
-    out_dir = root_dir / "output"
+    # root_dir = Path(__file__).resolve().parents[1]
+    cfg = Config()
+    out_dir = cfg.OUT_DIR
     fig_dir = out_dir / "figures"
     
     print("📦 加载季度 SHAP 与 IC/IR 分析结果...")
     shap_dfs, ic_df = load_and_preprocess_data(str(out_dir))
+    print(f"SHAP df info: {[ (model, df.shape) for model, df in shap_dfs.items() ]}")
+    model, shap_df = shap_dfs.popitem()  # 取出一个模型用于打印样例信息
+    print(shap_df.head(3))
+    print(f"  - {model}: {shap_df.shape[0]} samples")
+    mean_shap = shap_df.mean(axis=0).sort_values(ascending=True)
+    print(f"  - {model}: Mean SHAP values (Top 5): {mean_shap[-5:]}")
+    shap_selected = [(feature, mean_shap[feature]) for feature in mean_shap.index if mean_shap[feature] > 0.0001]
+    feature_selected = [feature for feature in mean_shap.index if mean_shap[feature] > 0.0001]
+    print(f" - {model}: Selected features (SHAP > 0.0001): {feature_selected}")
     
     print(f"📊 检测到 {len(shap_dfs)} 个模型的 SHAP 数据，共 {len(ic_df)} 个季度的 IC 数据。")
     

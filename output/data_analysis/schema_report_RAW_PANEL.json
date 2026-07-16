@@ -1,0 +1,52 @@
+{
+  "dataset_name": "RAW_PANEL",
+  "total_columns": 27,
+  "categories_summary": {
+    "metadata": 3,
+    "price_ohlc": 21,
+    "label": 0,
+    "control_mask": 0,
+    "field_mask": 0,
+    "factor": 0,
+    "unknown": 3
+  },
+  "categories_detail": {
+    "metadata": [
+      "SW_L1_CODE",
+      "S_INFO_WINDCODE",
+      "TRADE_DT"
+    ],
+    "price_ohlc": [
+      "S_DQ_ADJCLOSE",
+      "S_DQ_ADJFACTOR",
+      "S_DQ_ADJHIGH",
+      "S_DQ_ADJLOW",
+      "S_DQ_ADJOPEN",
+      "S_DQ_ADJPRECLOSE",
+      "S_DQ_AMOUNT",
+      "S_DQ_AVGPRICE",
+      "S_DQ_CAPITAL",
+      "S_DQ_CHANGE",
+      "S_DQ_CLOSE",
+      "S_DQ_HIGH",
+      "S_DQ_LIMIT",
+      "S_DQ_LOW",
+      "S_DQ_OPEN",
+      "S_DQ_PCTCHANGE",
+      "S_DQ_PRECLOSE",
+      "S_DQ_STOPPING",
+      "S_DQ_TRADESTATUS",
+      "S_DQ_TRADESTATUSCODE",
+      "S_DQ_VOLUME"
+    ],
+    "label": [],
+    "control_mask": [],
+    "field_mask": [],
+    "factor": [],
+    "unknown": [
+      "SW_L1_NAME",
+      "S_SHARE_TOTALA",
+      "S_SHARE_TOTALA_MATCH_METHOD"
+    ]
+  }
+}

@@ -22,39 +22,46 @@ from config.Config import Config
 def setup_logging():
     logging.basicConfig(level=logging.INFO, format='%(asctime)s | %(levelname)s | %(message)s')
 
-def load_pretrained_models(model_dir: str, feature_cols: list):
+def load_pretrained_models(model_dir: str, feature_cols: list, ablation=False):
     trainers = {}
-    sklearn_path = os.path.join(model_dir, "sklearn_models.pkl")
-    if os.path.exists(sklearn_path):
-        trainers.update(joblib.load(sklearn_path))
-        
-    for name in ['Transformer']:
-        meta_path = os.path.join(model_dir, f"{name}_meta.pkl")
-        state_path = os.path.join(model_dir, f"{name}_state.pt")
-        if os.path.exists(meta_path) and os.path.exists(state_path):
-            meta = joblib.load(meta_path)
-            model = PyTorchTabularRegressor(input_dim=meta['input_dim'], hidden_dim=meta['hidden_dim'],
-                                            n_heads=meta['n_heads'], n_layers=meta['n_layers'])
-            model.feature_names = meta['feature_names']
-            model.model = SimpleTabularTransformer(input_dim=meta['input_dim'], hidden_dim=meta['hidden_dim'],
-                                                   n_heads=meta['n_heads'], n_layers=meta['n_layers'])
-            model.model.load_state_dict(torch.load(state_path, map_location='cpu'))
-            model.model.eval()
-            trainers[name] = model
-            logging.info(f"✅ 成功加载预训练模型: {name}")
+    if ablation == False:
+        sklearn_path = os.path.join(model_dir, "sklearn_models.pkl")
+        if os.path.exists(sklearn_path):
+            trainers.update(joblib.load(sklearn_path))
+   
+        # for name in ['Transformer']:
+        #     meta_path = os.path.join(model_dir, f"{name}_meta.pkl")
+        #     state_path = os.path.join(model_dir, f"{name}_state.pt")
+        #     if os.path.exists(meta_path) and os.path.exists(state_path):
+        #         meta = joblib.load(meta_path)
+        #         model = PyTorchTabularRegressor(input_dim=meta['input_dim'], hidden_dim=meta['hidden_dim'],
+        #                                         n_heads=meta['n_heads'], n_layers=meta['n_layers'])
+        #         model.feature_names = meta['feature_names']
+        #         model.model = SimpleTabularTransformer(input_dim=meta['input_dim'], hidden_dim=meta['hidden_dim'],
+        #                                             n_heads=meta['n_heads'], n_layers=meta['n_layers'])
+        #         model.model.load_state_dict(torch.load(state_path, map_location='cpu'))
+        #         model.model.eval()
+        #         trainers[name] = model
+        #         logging.info(f"✅ 成功加载预训练模型: {name}")
+    else:
+        ablation_sklearn_path = os.path.join(model_dir, "ablation_sklearn_models.pkl")
+        if os.path.exists(ablation_sklearn_path):
+            trainers.update(joblib.load(ablation_sklearn_path))
     return trainers
 
-def main():
+def main(ablation=False):
     setup_logging()
     cfg = Config()
     cfg.OUT_DIR.mkdir(parents=True, exist_ok=True)
     cfg.FIG_DIR.mkdir(parents=True, exist_ok=True)
     cfg.LOG_DIR.mkdir(parents=True, exist_ok=True)
+    ablation = cfg.SHAP_ABLATION
     
     # 🔑 关键修复：预训练模型无需长预热，强制设为 5 天
     # cfg.WARMUP_DAYS = 5 
     logging.info(f"⚙️ 回测配置已调整: WARMUP_DAYS={cfg.WARMUP_DAYS}, REBALANCE_DAYS={cfg.REBALANCE_DAYS}")
-
+    if ablation:
+        logging.info("🧪 消融实验模式已启用 | 仅使用选定特征进行回测")
     logging.info("📦 加载面板数据...")
     try:
         df = load_panel_data(None, cfg.DATA_TEST_DIR, [], load_train=False, load_test=True)
@@ -70,13 +77,27 @@ def main():
     trainers = load_pretrained_models(str(cfg.MODEL_DIR), cfg.FEATURE_COLS)
     if not trainers:
         raise RuntimeError("未加载到任何模型，请先运行 script/train_models.py")
+    
+    logging.info(f"Loading ablation models from {cfg.MODEL_DIR}...")
+    trainers_ablation = load_pretrained_models(str(cfg.MODEL_DIR), cfg.FEATURE_SELECTED, ablation=True)
+    if ablation and not trainers_ablation:
+        raise RuntimeError("未加载到任何消融实验模型，请先运行 script/train_models.py 并启用消融实验")
 
     test_start_date = pd.to_datetime('2025-01-01')
     df_test = df[df['TRADE_DT'] >= test_start_date].copy()
     logging.info(f"🔒 数据隔离完成 | 样本外测试集形状: {df_test.shape} (起始日: {test_start_date})")
 
+    if ablation:
+        logging.info("🧪 使用消融实验模型进行回测...")
+        # df_ablation = df_test[cfg.FEATURE_SELECTED + ['TRADE_DT', 'S_INFO_WINDCODE', f'label_{cfg.REBALANCE_DAYS}', 'FEATURE_MASK']]
+        engine = BacktestEngine(df_test, cfg, trainers=trainers_ablation, label_col=f'label_{cfg.REBALANCE_DAYS}', ablation=True)
+        results_ab = engine.run()
+    logging.info("🚀 使用预训练模型进行回测...")
     engine = BacktestEngine(df_test, cfg, trainers=trainers, label_col=f'label_{cfg.REBALANCE_DAYS}')
     results = engine.run()
+    if ablation:
+        for name in results_ab.keys():
+            results[name + "_ablation"] = results_ab[name]
 
     for name, pf in engine.portfolios.items():
         pf.save_logs(name, str(cfg.LOG_DIR))
