@@ -17,6 +17,8 @@ from util.data_loader import load_panel_data, compute_real_returns, extract_vali
 from src.backtest_engine import BacktestEngine
 from util.metrics import evaluate_and_plot
 from config.Config import Config
+import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
 # from src.transformer_model import PyTorchTabularRegressor, SimpleTabularTransformer
 
 def setup_logging():
@@ -48,6 +50,37 @@ def load_pretrained_models(model_dir: str, feature_cols: list, ablation=False):
         if os.path.exists(ablation_sklearn_path):
             trainers.update(joblib.load(ablation_sklearn_path))
     return trainers
+
+# 🔑 新增：预测误差绘图函数
+def plot_prediction_error(mse_results, figure_dir, suffix=""):
+    """绘制模型预测误差 (MSE) 随时间变化的时序图 (无未来函数版)"""
+    if not any(mse_results.values()):
+        logging.warning("⚠️ 无有效预测误差数据，跳过绘图。")
+        return
+        
+    plt.figure(figsize=(14, 6))
+    
+    for name, records in mse_results.items():
+        if not records: continue
+        df_err = pd.DataFrame(records).set_index('TRADE_DT')
+        # 使用 10 日滚动平均平滑曲线
+        df_err['MSE_MA10'] = df_err['MSE'].rolling(window=10, min_periods=1).mean()
+        plt.plot(df_err.index, df_err['MSE_MA10'], label=f'{name} (MSE MA10)', lw=1.5)
+        
+    # 🔑 修改标题，明确标注误差是在 T+i 日结算的
+    plt.title(f'Realized Prediction Error (MSE Settled at T+i) Over Time {suffix}')
+    plt.xlabel('Settlement Date (T+i)')
+    plt.ylabel('Mean Squared Error (10-Day MA)')
+    plt.gca().xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m'))
+    plt.grid(True, alpha=0.3)
+    plt.legend()
+    plt.tight_layout()
+    
+    os.makedirs(figure_dir, exist_ok=True)
+    path = os.path.join(figure_dir, f'realized_prediction_error_mse{suffix}.png')
+    plt.savefig(path, dpi=150)
+    plt.close()
+    logging.info(f"✅ 无未来函数预测误差图已保存至: {path}")
 
 def main(ablation=False):
     setup_logging()
@@ -89,12 +122,18 @@ def main(ablation=False):
 
     if ablation:
         logging.info("🧪 使用消融实验模型进行回测...")
-        # df_ablation = df_test[cfg.FEATURE_SELECTED + ['TRADE_DT', 'S_INFO_WINDCODE', f'label_{cfg.REBALANCE_DAYS}', 'FEATURE_MASK']]
-        engine = BacktestEngine(df_test, cfg, trainers=trainers_ablation, label_col=f'label_{cfg.REBALANCE_DAYS}', ablation=True)
-        results_ab = engine.run()
+        engine_ab = BacktestEngine(df_test, cfg, trainers=trainers_ablation, label_col=f'label_{cfg.REBALANCE_DAYS}', ablation=True)
+        results_ab = engine_ab.run()
+        plot_prediction_error(engine_ab.mse_results, str(cfg.FIG_DIR), suffix="_ablation")
+
+    # 🔑 2. 全量特征回测
     logging.info("🚀 使用预训练模型进行回测...")
     engine = BacktestEngine(df_test, cfg, trainers=trainers, label_col=f'label_{cfg.REBALANCE_DAYS}')
     results = engine.run()
+    
+    # 绘制全量模型的误差图
+    plot_prediction_error(engine.mse_results, str(cfg.FIG_DIR), suffix="_full")
+
     if ablation:
         for name in results_ab.keys():
             results[name + "_ablation"] = results_ab[name]
@@ -136,7 +175,7 @@ def main(ablation=False):
     logging.info(f"✅ 综合绩效汇总已保存至 JSON: {json_path}")
 
     # logging.info("🔍 启动 SHAP 因子可解释性分析...")
-    # engine.analyze_shap(str(cfg.FIG_DIR), sample_size=cfg.SHAP_SAMPLE_SIZE)
+    engine.analyze_shap(str(cfg.FIG_DIR), sample_size=cfg.SHAP_SAMPLE_SIZE)
     logging.info("✅ 全部流程完成！")
 
 if __name__ == "__main__":
