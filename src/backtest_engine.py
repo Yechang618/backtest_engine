@@ -24,6 +24,11 @@ class BacktestEngine:
         self.returns_history = defaultdict(list)
         self.trainers = trainers
         self._baseline_init = False
+
+        # 🔑 无未来函数设计：预测误差延迟结算机制
+        self.mse_results = {m: [] for m in self.cfg.MODELS}
+        self.prediction_cache = defaultdict(dict)  # 结构: {pred_date: {model_name: {code: pred_value}}}
+        
         self._check_feature_alignment() # 🔑 新增：特征对齐校验
         logging.info(f"BacktestEngine 初始化完成 (加载预训练模型) | 模型: {list(self.trainers.keys())} | 样本数: {len(self.df)}")
 
@@ -58,32 +63,98 @@ class BacktestEngine:
         full_scores[eligible] = weights
         return full_scores
 
+    # def run(self) -> Dict[str, pd.DataFrame]:
+    #     grouped = self.df.groupby('TRADE_DT')
+    #     dates = sorted(grouped.groups.keys())
+    #     day_cnt = 0
+    #     results = {m: [] for m in self.cfg.MODELS}
+    #     prev_prices = {}
+    #     logger.info(f"🚀 启动样本外回测 | 交易日: {len(dates)} | 模型已冻结")
+
+    #     # Test print
+    #     print_test = True
+    #     for date in dates:
+    #         daily = grouped.get_group(date).set_index('S_INFO_WINDCODE').copy()
+    #         # price_dict: {code: adj_close_price} 用于更新投资组合价值和计算日收益率
+    #         Target = 'S_DQ_ADJCLOSE' 
+    #         if print_test and 'S_DQ_ADJCLOSE' not in daily.columns:
+    #             print(f"Date: {date.strftime('%Y-%m-%d')} | Sample daily data shape: {daily.shape} | Target column: {Target}")
+    #             print(f"Sample rows:\n{daily.head(3)}")
+    #             print_test = False
+    #         # price_dict = daily['S_DQ_ADJCLOSE'].to_dict()
+    #         price_dict = daily[Target].to_dict()
+    #         day_cnt += 1
+
+    #         for code in daily.index:
+    #             # daily.index 是当日所有股票的代码列表，price_dict 存储了这些股票的收盘价，prev_prices 记录了前一天的收盘价以计算日收益率
+    #             # returns_history 维护了每只股票最近 80 个交易日的收益率序列，用于 OptSharpe 模型的权重计算
+    #             price = price_dict[code]
+    #             daily_ret = (price - prev_prices[code]) / prev_prices[code] if code in prev_prices and prev_prices[code] > 1e-6 else 0.0
+    #             self.returns_history[code].append(daily_ret)
+    #             if len(self.returns_history[code]) > 80:
+    #                 self.returns_history[code] = self.returns_history[code][-80:]
+    #             prev_prices[code] = price
+
+    #         if 'BuyAndHoldAll' in self.cfg.MODELS and not self._baseline_init:
+    #             tradable_all = daily[daily.get('BUY_MASK', 1) == 1].index.tolist()
+    #             if tradable_all:
+    #                 self.portfolios['BuyAndHoldAll'].buy_universe_once(date, tradable_all, price_dict)
+    #                 self._baseline_init = True
+
+    #         # 🔑 修复：使用 <= 避免负数取模问题，且确保超过预热期才调仓
+    #         if day_cnt <= self.cfg.WARMUP_DAYS:
+    #             for m in self.cfg.MODELS:
+    #                 nav = self.portfolios[m].update_daily(date, price_dict)
+    #                 results[m].append({'TRADE_DT': date, 'Value': nav})
+    #             continue
+
+    #         # 调仓逻辑
+    #         if (day_cnt - self.cfg.WARMUP_DAYS) % self.cfg.REBALANCE_DAYS == 0:
+    #             tradable = daily[daily.get('BUY_MASK', 1) == 1].copy()
+    #             if not tradable.empty:
+    #                 for name in self.cfg.MODELS:
+    #                     if name == 'BuyAndHoldAll': continue
+    #                     if name == 'OptSharpe':
+    #                         weights = self._calc_opt_sharpe_weights(tradable.index.tolist())
+    #                         top50 = weights.nlargest(self.cfg.TOP_K).index.tolist()
+    #                     else:
+    #                         if name not in self.trainers: continue
+    #                         try:
+    #                             preds = self.trainers[name].predict(tradable[self.feature_cols])
+    #                             top50 = pd.Series(preds, index=tradable.index).nlargest(self.cfg.TOP_K).index.tolist()
+    #                         except Exception as e:
+    #                             logger.error(f"❌ {name} 预测失败: {e}")
+    #                             top50 = []
+                        
+    #                     if len(top50) == 0:
+    #                         logger.warning(f"⚠️ {date.strftime('%Y-%m-%d')} | {name} 未生成有效 Top50 标的")
+    #                     self.portfolios[name].rebalance(date, top50, price_dict)
+
+    #         for m in self.cfg.MODELS:
+    #             nav = self.portfolios[m].update_daily(date, price_dict)
+    #             results[m].append({'TRADE_DT': date, 'Value': nav})
+                
+    #         if day_cnt % 50 == 0:
+    #             logger.info(f"📊 进度: {date.strftime('%Y-%m-%d')} | 现金(EN): {self.portfolios['ElasticNet'].cash:,.0f}")
+
+    #     return {k: pd.DataFrame(v) for k, v in results.items()}
+
     def run(self) -> Dict[str, pd.DataFrame]:
         grouped = self.df.groupby('TRADE_DT')
         dates = sorted(grouped.groups.keys())
         day_cnt = 0
         results = {m: [] for m in self.cfg.MODELS}
         prev_prices = {}
-        logger.info(f"🚀 启动样本外回测 | 交易日: {len(dates)} | 模型已冻结")
+        logger.info(f"🚀 启动样本外回测 (无未来函数误差结算版) | 交易日: {len(dates)}")
 
-        # Test print
-        print_test = True
         for date in dates:
             daily = grouped.get_group(date).set_index('S_INFO_WINDCODE').copy()
-            # price_dict: {code: adj_close_price} 用于更新投资组合价值和计算日收益率
-            # Target = 'S_DQ_ADJCLOSE' if 'S_DQ_ADJCLOSE' in daily.columns else 'S_DQ_CLOSE'
             Target = 'S_DQ_ADJCLOSE' 
-            if print_test and 'S_DQ_ADJCLOSE' not in daily.columns:
-                print(f"Date: {date.strftime('%Y-%m-%d')} | Sample daily data shape: {daily.shape} | Target column: {Target}")
-                print(f"Sample rows:\n{daily.head(3)}")
-                print_test = False
-            # price_dict = daily['S_DQ_ADJCLOSE'].to_dict()
             price_dict = daily[Target].to_dict()
             day_cnt += 1
 
+            # 1. 更新收益历史 (用于 OptSharpe)
             for code in daily.index:
-                # daily.index 是当日所有股票的代码列表，price_dict 存储了这些股票的收盘价，prev_prices 记录了前一天的收盘价以计算日收益率
-                # returns_history 维护了每只股票最近 80 个交易日的收益率序列，用于 OptSharpe 模型的权重计算
                 price = price_dict[code]
                 daily_ret = (price - prev_prices[code]) / prev_prices[code] if code in prev_prices and prev_prices[code] > 1e-6 else 0.0
                 self.returns_history[code].append(daily_ret)
@@ -91,20 +162,20 @@ class BacktestEngine:
                     self.returns_history[code] = self.returns_history[code][-80:]
                 prev_prices[code] = price
 
+            # 2. 基线策略初始化
             if 'BuyAndHoldAll' in self.cfg.MODELS and not self._baseline_init:
                 tradable_all = daily[daily.get('BUY_MASK', 1) == 1].index.tolist()
                 if tradable_all:
                     self.portfolios['BuyAndHoldAll'].buy_universe_once(date, tradable_all, price_dict)
                     self._baseline_init = True
 
-            # 🔑 修复：使用 <= 避免负数取模问题，且确保超过预热期才调仓
             if day_cnt <= self.cfg.WARMUP_DAYS:
                 for m in self.cfg.MODELS:
                     nav = self.portfolios[m].update_daily(date, price_dict)
                     results[m].append({'TRADE_DT': date, 'Value': nav})
                 continue
 
-            # 调仓逻辑
+            # 3. 调仓与预测逻辑 (🔑 仅缓存，不计算误差)
             if (day_cnt - self.cfg.WARMUP_DAYS) % self.cfg.REBALANCE_DAYS == 0:
                 tradable = daily[daily.get('BUY_MASK', 1) == 1].copy()
                 if not tradable.empty:
@@ -117,19 +188,55 @@ class BacktestEngine:
                             if name not in self.trainers: continue
                             try:
                                 preds = self.trainers[name].predict(tradable[self.feature_cols])
+                                
+                                # 🔑 核心：将预测值缓存，等待 T+i 日结算。此时绝不访问 label_{i}
+                                self.prediction_cache[date][name] = dict(zip(tradable.index, preds))
+                                
                                 top50 = pd.Series(preds, index=tradable.index).nlargest(self.cfg.TOP_K).index.tolist()
                             except Exception as e:
                                 logger.error(f"❌ {name} 预测失败: {e}")
                                 top50 = []
-                        
+                                
                         if len(top50) == 0:
                             logger.warning(f"⚠️ {date.strftime('%Y-%m-%d')} | {name} 未生成有效 Top50 标的")
                         self.portfolios[name].rebalance(date, top50, price_dict)
 
+            # 4. 每日净值计算
             for m in self.cfg.MODELS:
                 nav = self.portfolios[m].update_daily(date, price_dict)
                 results[m].append({'TRADE_DT': date, 'Value': nav})
                 
+            # 5. 🔑 无未来函数误差结算 (Delayed Realized Error)
+            # 计算需要结算的预测日 (T 日 = 当前 T+i 日 - i 个交易日)
+            settle_idx = day_cnt - 1 - self.cfg.REBALANCE_DAYS
+            if settle_idx >= 0:
+                pred_date = dates[settle_idx]
+                if pred_date in self.prediction_cache:
+                    # 此时 pred_date 到 date 的真实收益已经客观实现
+                    # 我们从 self.df 中读取 pred_date 的 label_{i} (它现在代表已实现的历史收益)
+                    pred_day_data = self.df[self.df['TRADE_DT'] == pred_date].set_index('S_INFO_WINDCODE')
+                    
+                    for model_name, preds_dict in self.prediction_cache[pred_date].items():
+                        sq_errors = []
+                        abs_errors = []
+                        for code, pred in preds_dict.items():
+                            if code in pred_day_data.index:
+                                true_label = pred_day_data.loc[code, self.label_col]
+                                if not np.isnan(true_label):
+                                    sq_errors.append((pred - true_label) ** 2)
+                                    abs_errors.append(abs(pred - true_label))
+                        
+                        if sq_errors:
+                            # 误差记录在结算日 (date)，而非预测日 (pred_date)
+                            self.mse_results[model_name].append({
+                                'TRADE_DT': date, 
+                                'MSE': float(np.mean(sq_errors)),
+                                'MAE': float(np.mean(abs_errors)),
+                                'Sample_Count': len(sq_errors)
+                            })
+                    # 结算完成，释放内存
+                    del self.prediction_cache[pred_date]
+
             if day_cnt % 50 == 0:
                 logger.info(f"📊 进度: {date.strftime('%Y-%m-%d')} | 现金(EN): {self.portfolios['ElasticNet'].cash:,.0f}")
 
