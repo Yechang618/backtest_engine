@@ -9,7 +9,7 @@ class Config:
     # RAW_PANEL = "/data/data_process/4.15_revision/raw_daily_panel.parquet"
     # DATA_DIR = "c:/Users/yecha/workspace/data/train_data"
     # DATA_TEST_DIR = "c:/Users/yecha/workspace/data/test_data"
-    Date = "20260714"
+    Date = "20260716"
     # DATA_RAW_ROOT, DATA_ROOT = "c:/Users/yecha/workspace/data", "c:/Users/yecha/workspace/data"
     DATA_RAW_ROOT, DATA_ROOT  = "/data/data_process/5.27_update/rebuild", "/data/data_process/5.27_update/rebuild/model_training_step15_selected_panel"
     RAW_PANEL = f"{DATA_RAW_ROOT}/market_base_with_industry_20150101_{Date}.parquet"
