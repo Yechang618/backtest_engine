@@ -60,20 +60,20 @@ def load_train_data_only(cfg: Config) -> pd.DataFrame:
     logging.info(f"✅ 训练集加载完成 | 总行数: {len(df_full):,} | 时间范围: {df_full['TRADE_DT'].min()} 至 {df_full['TRADE_DT'].max()}")
     return df_full
 
-def get_or_train_model(cfg: Config, feature_cols: List[str], df_train: pd.DataFrame):
+def get_or_train_model(cfg: Config, feature_cols: List[str], df_train: pd.DataFrame, model_type: str = 'LightGBM'):
     """获取用于 SHAP 分析的基准模型。优先加载已保存的 LightGBM，否则现场训练一个"""
     model_path = os.path.join(cfg.MODEL_DIR, "sklearn_models.pkl")
     
     if os.path.exists(model_path):
         try:
             trainers = joblib.load(model_path)
-            if 'LightGBM' in trainers:
-                logging.info("✅ 成功从 saved_models 加载预训练的 LightGBM 模型用于 SHAP 分析")
-                return trainers['LightGBM']
+            if model_type in trainers:
+                logging.info(f"✅ 成功从 saved_models 加载预训练的 {model_type} 模型用于 SHAP 分析")
+                return trainers[model_type]
         except Exception as e:
             logging.warning(f"⚠️ 加载预训练模型失败: {e}，将现场训练一个基准模型")
 
-    logging.info("🚀 未找到预训练模型，正在使用全量训练集现场训练 LightGBM 基准模型...")
+    logging.info(f"🚀 未找到预训练的 {model_type} 模型，正在使用全量训练集现场训练 {model_type} 基准模型...")
     label_col = f'label_{cfg.REBALANCE_DAYS}'
     valid_mask = (df_train['FEATURE_MASK'] == 1)
     df_valid = df_train[valid_mask].dropna(subset=[label_col] + feature_cols)
@@ -86,7 +86,7 @@ def get_or_train_model(cfg: Config, feature_cols: List[str], df_train: pd.DataFr
     logging.info(f"✅ 基准模型训练完成 | 训练样本数: {len(X):,}")
     return model
 
-def run_quarterly_analysis(cfg: Config):
+def run_quarterly_analysis(cfg: Config, model_type: str = 'LightGBM'):
     """执行按季度的 IC/IR 与 SHAP 值分析"""
     logging.info("📦 开始加载全量训练集数据...")
     df = load_train_data_only(cfg)
@@ -107,7 +107,7 @@ def run_quarterly_analysis(cfg: Config):
     logging.info(f"📅 检测到 {len(quarters)} 个季度窗口: {quarters[0]} 至 {quarters[-1]}")
     
     # 获取基准模型
-    model = get_or_train_model(cfg, feature_cols, df)
+    model = get_or_train_model(cfg, feature_cols, df, model_type = model_type)
     explainer = shap.TreeExplainer(model)
     
     # 结果存储字典
@@ -166,12 +166,12 @@ def run_quarterly_analysis(cfg: Config):
     # 3. 保存结果
     os.makedirs(cfg.OUT_DIR, exist_ok=True)
     
-    ic_ir_path = os.path.join(cfg.OUT_DIR, "ic_ir_quarterly_analysis.json")
+    ic_ir_path = os.path.join(cfg.OUT_DIR, f"ic_ir_quarterly_analysis_{model_type}.json")
     with open(ic_ir_path, 'w', encoding='utf-8') as f:
         json.dump(ic_ir_results, f, indent=2, ensure_ascii=False)
     logging.info(f"💾 IC/IR 结果已保存至: {ic_ir_path}")
     
-    shap_path = os.path.join(cfg.OUT_DIR, "shap_quarterly_analysis.json")
+    shap_path = os.path.join(cfg.OUT_DIR, f"shap_quarterly_analysis_{model_type}.json")
     with open(shap_path, 'w', encoding='utf-8') as f:
         json.dump(shap_results, f, indent=2, ensure_ascii=False)
     logging.info(f"💾 SHAP 结果已保存至: {shap_path}")
@@ -184,16 +184,19 @@ def run_quarterly_analysis(cfg: Config):
     
     shap_df = pd.DataFrame(shap_df_list)
     shap_df.set_index('QUARTER', inplace=True)
-    parquet_path = os.path.join(cfg.OUT_DIR, "shap_quarterly_analysis.parquet")
+    parquet_path = os.path.join(cfg.OUT_DIR, f"shap_quarterly_analysis_{model_type}.parquet")
     shap_df.to_parquet(parquet_path)
     logging.info(f"💾 SHAP 结果 (Parquet) 已保存至: {parquet_path}")
     
-    logging.info("🎉 季度 SHAP 与 IC/IR 分析全部完成！")
+    logging.info(f"🎉 季度 SHAP 与 IC/IR 分析({model_type})全部完成！")
+
+
 
 def main():
     setup_logging()
     cfg = Config()
-    run_quarterly_analysis(cfg)
+    run_quarterly_analysis(cfg, model_type='LightGBM')
+    run_quarterly_analysis(cfg, model_type='XGBoost')  # 如果你有 XGBoost 模型，也可以运行
 
 if __name__ == "__main__":
     main()

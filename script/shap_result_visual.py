@@ -17,10 +17,10 @@ from config.Config import Config
 plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'Arial Unicode MS', 'DejaVu Sans']
 plt.rcParams['axes.unicode_minus'] = False
 
-def load_and_preprocess_data(out_dir):
+def load_and_preprocess_data(out_dir, model_type='LightGBM'):
     """加载并解析 JSON 数据，自动兼容旧版单模型格式"""
-    shap_path = os.path.join(out_dir, "shap_quarterly_analysis.json")
-    icir_path = os.path.join(out_dir, "ic_ir_quarterly_analysis.json")
+    shap_path = os.path.join(out_dir, f"shap_quarterly_analysis_{model_type}.json")
+    icir_path = os.path.join(out_dir, f"ic_ir_quarterly_analysis_{model_type}.json")
     
     if not os.path.exists(shap_path) or not os.path.exists(icir_path):
         raise FileNotFoundError(f"❌ 未找到分析结果文件，请先运行 script/shap_analysis.py\n"
@@ -35,7 +35,7 @@ def load_and_preprocess_data(out_dir):
     first_key = next(iter(shap_data_raw))
     if first_key.startswith('20') and 'Q' in first_key:
         print("⚠️ 检测到旧版 SHAP 数据格式 (无模型层级)，默认归类为 'LightGBM' 进行可视化")
-        shap_data = {'LightGBM': shap_data_raw}
+        shap_data = {'Default': shap_data_raw}
     else:
         shap_data = shap_data_raw
         
@@ -57,7 +57,7 @@ def load_and_preprocess_data(out_dir):
     
     return shap_dfs, ic_df
 
-def plot_visualizations(shap_dfs, ic_df, fig_dir):
+def plot_visualizations(shap_dfs, ic_df, fig_dir, model_type='LightGBM'):
     """针对每个模型生成 3 张核心图表"""
     os.makedirs(fig_dir, exist_ok=True)
 
@@ -139,7 +139,7 @@ def plot_visualizations(shap_dfs, ic_df, fig_dir):
         plt.close()
         print(f"  ✅ 图3 (SHAP 贡献度) 已保存: {path3}")
 
-def main():
+def main(model_type='LightGBM'):
     # 自动推断 output 目录
     # root_dir = Path(__file__).resolve().parents[1]
     cfg = Config()
@@ -147,8 +147,9 @@ def main():
     fig_dir = out_dir / "figures"
     
     print("📦 加载季度 SHAP 与 IC/IR 分析结果...")
-    shap_dfs, ic_df = load_and_preprocess_data(str(out_dir))
-    print(f"SHAP df info: {[ (model, df.shape) for model, df in shap_dfs.items() ]}")
+    # model_type = 'LightGBM'  # 默认加载 LightGBM 模型的结果
+    shap_dfs, ic_df = load_and_preprocess_data(str(out_dir), model_type=model_type)  # 默认加载 LightGBM 模型的结果
+    print(f"SHAP df info ({model_type}): {[ (model, df.shape) for model, df in shap_dfs.items() ]}")
     model, shap_df = shap_dfs.popitem()  # 取出一个模型用于打印样例信息
     print(shap_df.head(3))
     print(f"  - {model}: {shap_df.shape[0]} samples")
@@ -160,9 +161,10 @@ def main():
     
     print(f"📊 检测到 {len(shap_dfs)} 个模型的 SHAP 数据，共 {len(ic_df)} 个季度的 IC 数据。")
     
-    plot_visualizations(shap_dfs, ic_df, str(fig_dir))
+    plot_visualizations(shap_dfs, ic_df, str(fig_dir), model_type=model_type)
     
     print("\n🎉 所有可视化图表生成完毕！请查看 output/figures/ 目录。")
 
 if __name__ == "__main__":
-    main()
+    main(model_type='LightGBM')  # 可选 'XGBoost'，根据实际情况选择
+    main(model_type='XGBoost')  # 如果你有 XGBoost 模型，也可以运行

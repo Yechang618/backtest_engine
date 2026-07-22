@@ -15,10 +15,14 @@ class BacktestEngine:
         self.cfg = config
         self.ablation = ablation
         if self.ablation:
+            self.feature_cols_lgbm = config.FEATURE_SELECTED_LGBM
+            self.feature_cols_xgb = config.FEATURE_SELECTED_XGB
             self.feature_cols = config.FEATURE_SELECTED
         else:
+            self.feature_cols_lgbm = config.FEATURE_COLS
+            self.feature_cols_xgb = config.FEATURE_COLS
             self.feature_cols = config.FEATURE_COLS
-        print(f"🔧 BacktestEngine 初始化 | 样本数: {len(self.df)} | 特征数: {len(self.feature_cols)} | 标签列: {label_col}")
+        print(f"🔧 BacktestEngine 初始化 | 样本数: {len(self.df)} | 特征数: {len(self.feature_cols_lgbm)} | 标签列: {label_col}")
         self.label_col = label_col
         self.portfolios = {m: PortfolioManager(config.INITIAL_CAPITAL, config.COMMISSION_RATE) for m in config.MODELS}
         self.returns_history = defaultdict(list)
@@ -37,11 +41,16 @@ class BacktestEngine:
         for name, model in self.trainers.items():
             if hasattr(model, 'feature_names_in_'):
                 trained_features = list(model.feature_names_in_)
-                if set(trained_features) != set(self.feature_cols):
-                    logger.warning(f"⚠️ {name} 训练特征({len(trained_features)})与测试集特征({len(self.feature_cols)})不匹配！")
+                if name == 'LightGBM' and set(trained_features) != set(self.feature_cols_lgbm):
+                    logger.warning(f"⚠️ {name} 训练特征({len(trained_features)})与测试集特征({len(self.feature_cols_lgbm)})不匹配！")
                     # 自动按训练顺序重排
-                    self.feature_cols = [c for c in trained_features if c in self.feature_cols]
-                    logger.info(f"✅ 已自动对齐 {name} 特征列顺序 | 最终数量: {len(self.feature_cols)}")
+                    self.feature_cols_lgbm = [c for c in trained_features if c in self.feature_cols_lgbm]
+                    logger.info(f"✅ 已自动对齐 {name} 特征列顺序 | 最终数量: {len(self.feature_cols_lgbm)}")
+                elif name == 'XGBoost' and set(trained_features) != set(self.feature_cols_xgb):
+                    logger.warning(f"⚠️ {name} 训练特征({len(trained_features)})与测试集特征({len(self.feature_cols_xgb)})不匹配！")
+                    # 自动按训练顺序重排
+                    self.feature_cols_xgb = [c for c in trained_features if c in self.feature_cols_xgb]
+                    logger.info(f"✅ 已自动对齐 {name} 特征列顺序 | 最终数量: {len(self.feature_cols_xgb)}")
                 break
 
     def _calc_opt_sharpe_weights(self, valid_codes: List[str]) -> pd.Series:
@@ -62,82 +71,6 @@ class BacktestEngine:
         full_scores = pd.Series(0.0, index=valid_codes)
         full_scores[eligible] = weights
         return full_scores
-
-    # def run(self) -> Dict[str, pd.DataFrame]:
-    #     grouped = self.df.groupby('TRADE_DT')
-    #     dates = sorted(grouped.groups.keys())
-    #     day_cnt = 0
-    #     results = {m: [] for m in self.cfg.MODELS}
-    #     prev_prices = {}
-    #     logger.info(f"🚀 启动样本外回测 | 交易日: {len(dates)} | 模型已冻结")
-
-    #     # Test print
-    #     print_test = True
-    #     for date in dates:
-    #         daily = grouped.get_group(date).set_index('S_INFO_WINDCODE').copy()
-    #         # price_dict: {code: adj_close_price} 用于更新投资组合价值和计算日收益率
-    #         Target = 'S_DQ_ADJCLOSE' 
-    #         if print_test and 'S_DQ_ADJCLOSE' not in daily.columns:
-    #             print(f"Date: {date.strftime('%Y-%m-%d')} | Sample daily data shape: {daily.shape} | Target column: {Target}")
-    #             print(f"Sample rows:\n{daily.head(3)}")
-    #             print_test = False
-    #         # price_dict = daily['S_DQ_ADJCLOSE'].to_dict()
-    #         price_dict = daily[Target].to_dict()
-    #         day_cnt += 1
-
-    #         for code in daily.index:
-    #             # daily.index 是当日所有股票的代码列表，price_dict 存储了这些股票的收盘价，prev_prices 记录了前一天的收盘价以计算日收益率
-    #             # returns_history 维护了每只股票最近 80 个交易日的收益率序列，用于 OptSharpe 模型的权重计算
-    #             price = price_dict[code]
-    #             daily_ret = (price - prev_prices[code]) / prev_prices[code] if code in prev_prices and prev_prices[code] > 1e-6 else 0.0
-    #             self.returns_history[code].append(daily_ret)
-    #             if len(self.returns_history[code]) > 80:
-    #                 self.returns_history[code] = self.returns_history[code][-80:]
-    #             prev_prices[code] = price
-
-    #         if 'BuyAndHoldAll' in self.cfg.MODELS and not self._baseline_init:
-    #             tradable_all = daily[daily.get('BUY_MASK', 1) == 1].index.tolist()
-    #             if tradable_all:
-    #                 self.portfolios['BuyAndHoldAll'].buy_universe_once(date, tradable_all, price_dict)
-    #                 self._baseline_init = True
-
-    #         # 🔑 修复：使用 <= 避免负数取模问题，且确保超过预热期才调仓
-    #         if day_cnt <= self.cfg.WARMUP_DAYS:
-    #             for m in self.cfg.MODELS:
-    #                 nav = self.portfolios[m].update_daily(date, price_dict)
-    #                 results[m].append({'TRADE_DT': date, 'Value': nav})
-    #             continue
-
-    #         # 调仓逻辑
-    #         if (day_cnt - self.cfg.WARMUP_DAYS) % self.cfg.REBALANCE_DAYS == 0:
-    #             tradable = daily[daily.get('BUY_MASK', 1) == 1].copy()
-    #             if not tradable.empty:
-    #                 for name in self.cfg.MODELS:
-    #                     if name == 'BuyAndHoldAll': continue
-    #                     if name == 'OptSharpe':
-    #                         weights = self._calc_opt_sharpe_weights(tradable.index.tolist())
-    #                         top50 = weights.nlargest(self.cfg.TOP_K).index.tolist()
-    #                     else:
-    #                         if name not in self.trainers: continue
-    #                         try:
-    #                             preds = self.trainers[name].predict(tradable[self.feature_cols])
-    #                             top50 = pd.Series(preds, index=tradable.index).nlargest(self.cfg.TOP_K).index.tolist()
-    #                         except Exception as e:
-    #                             logger.error(f"❌ {name} 预测失败: {e}")
-    #                             top50 = []
-                        
-    #                     if len(top50) == 0:
-    #                         logger.warning(f"⚠️ {date.strftime('%Y-%m-%d')} | {name} 未生成有效 Top50 标的")
-    #                     self.portfolios[name].rebalance(date, top50, price_dict)
-
-    #         for m in self.cfg.MODELS:
-    #             nav = self.portfolios[m].update_daily(date, price_dict)
-    #             results[m].append({'TRADE_DT': date, 'Value': nav})
-                
-    #         if day_cnt % 50 == 0:
-    #             logger.info(f"📊 进度: {date.strftime('%Y-%m-%d')} | 现金(EN): {self.portfolios['ElasticNet'].cash:,.0f}")
-
-    #     return {k: pd.DataFrame(v) for k, v in results.items()}
 
     def run(self) -> Dict[str, pd.DataFrame]:
         grouped = self.df.groupby('TRADE_DT')
@@ -187,8 +120,13 @@ class BacktestEngine:
                         else:
                             if name not in self.trainers: continue
                             try:
-                                preds = self.trainers[name].predict(tradable[self.feature_cols])
-                                
+                                if name == 'LightGBM':
+                                    preds = self.trainers[name].predict(tradable[self.feature_cols_lgbm])
+                                elif name == 'XGBoost':
+                                    preds = self.trainers[name].predict(tradable[self.feature_cols_xgb])
+                                else:
+                                    preds = self.trainers[name].predict(tradable[self.feature_cols])
+
                                 # 🔑 核心：将预测值缓存，等待 T+i 日结算。此时绝不访问 label_{i}
                                 self.prediction_cache[date][name] = dict(zip(tradable.index, preds))
                                 

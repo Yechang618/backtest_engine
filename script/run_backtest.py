@@ -30,76 +30,60 @@ def load_pretrained_models(model_dir: str, feature_cols: list, ablation=False):
         sklearn_path = os.path.join(model_dir, "sklearn_models.pkl")
         if os.path.exists(sklearn_path):
             trainers.update(joblib.load(sklearn_path))
-   
-        # for name in ['Transformer']:
-        #     meta_path = os.path.join(model_dir, f"{name}_meta.pkl")
-        #     state_path = os.path.join(model_dir, f"{name}_state.pt")
-        #     if os.path.exists(meta_path) and os.path.exists(state_path):
-        #         meta = joblib.load(meta_path)
-        #         model = PyTorchTabularRegressor(input_dim=meta['input_dim'], hidden_dim=meta['hidden_dim'],
-        #                                         n_heads=meta['n_heads'], n_layers=meta['n_layers'])
-        #         model.feature_names = meta['feature_names']
-        #         model.model = SimpleTabularTransformer(input_dim=meta['input_dim'], hidden_dim=meta['hidden_dim'],
-        #                                             n_heads=meta['n_heads'], n_layers=meta['n_layers'])
-        #         model.model.load_state_dict(torch.load(state_path, map_location='cpu'))
-        #         model.model.eval()
-        #         trainers[name] = model
-        #         logging.info(f"✅ 成功加载预训练模型: {name}")
     else:
         ablation_sklearn_path = os.path.join(model_dir, "ablation_sklearn_models.pkl")
         if os.path.exists(ablation_sklearn_path):
             trainers.update(joblib.load(ablation_sklearn_path))
     return trainers
 
-# 🔑 新增：预测误差绘图函数
-def plot_prediction_error(mse_results, figure_dir, suffix=""):
+def plot_prediction_error(mse_results, figure_dir, suffix="", start_date=''):
+    cfg = Config()
     """绘制模型预测误差 (MSE) 随时间变化的时序图 (无未来函数版)"""
     if not any(mse_results.values()):
         logging.warning("⚠️ 无有效预测误差数据，跳过绘图。")
         return
         
     plt.figure(figsize=(14, 6))
-    
     for name, records in mse_results.items():
         if not records: continue
         df_err = pd.DataFrame(records).set_index('TRADE_DT')
-        # 使用 10 日滚动平均平滑曲线
-        df_err['MSE_MA10'] = df_err['MSE'].rolling(window=10, min_periods=1).mean()
-        plt.plot(df_err.index, df_err['MSE_MA10'], label=f'{name} (MSE MA10)', lw=1.5)
+        plt.plot(df_err.index, df_err['MSE'], label=f'{name}', lw=1.5)
         
-    # 🔑 修改标题，明确标注误差是在 T+i 日结算的
     plt.title(f'Realized Prediction Error (MSE Settled at T+i) Over Time {suffix}')
     plt.xlabel('Settlement Date (T+i)')
-    plt.ylabel('Mean Squared Error (10-Day MA)')
+    plt.ylabel('Mean Squared Error (MSE)')    
     plt.gca().xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m'))
     plt.grid(True, alpha=0.3)
     plt.legend()
     plt.tight_layout()
     
     os.makedirs(figure_dir, exist_ok=True)
-    path = os.path.join(figure_dir, f'realized_prediction_error_mse{suffix}.png')
+    path = os.path.join(figure_dir, f'pred_top{cfg.TOP_K}_mse{suffix}_{start_date}.png')
     plt.savefig(path, dpi=150)
     plt.close()
     logging.info(f"✅ 无未来函数预测误差图已保存至: {path}")
 
-def main(ablation=False):
+def main(start_date='2025-01-01'):
     setup_logging()
     cfg = Config()
     cfg.OUT_DIR.mkdir(parents=True, exist_ok=True)
     cfg.FIG_DIR.mkdir(parents=True, exist_ok=True)
     cfg.LOG_DIR.mkdir(parents=True, exist_ok=True)
-    ablation = cfg.SHAP_ABLATION
     
-    # 🔑 关键修复：预训练模型无需长预热，强制设为 5 天
-    # cfg.WARMUP_DAYS = 5 
-    logging.info(f"⚙️ 回测配置已调整: WARMUP_DAYS={cfg.WARMUP_DAYS}, REBALANCE_DAYS={cfg.REBALANCE_DAYS}")
+    ablation = cfg.SHAP_ABLATION
+    logging.info(f"🔧 回测引擎已启动 | 样本外测试集起始日: {start_date} |Top K: {cfg.TOP_K} | 消融实验模式: {'启用' if ablation else '禁用'}")
+    logging.info(f"⚙️ 回测配置已调整: WARMUP_DAYS={cfg.WARMUP_DAYS}, REBALANCE_DAYS={cfg.REBALANCE_DAYS}, EXCLUDE_BJ={cfg.EXCLUDE_BJ}")
+
     if ablation:
         logging.info("🧪 消融实验模式已启用 | 仅使用选定特征进行回测")
+
     logging.info("📦 加载面板数据...")
     try:
-        df = load_panel_data(None, cfg.DATA_TEST_DIR, [], load_train=False, load_test=True)
+        # 🔑 修改：传入 exclude_bj=cfg.EXCLUDE_BJ
+        df = load_panel_data(None, cfg.DATA_TEST_DIR, [], load_train=False, load_test=True, exclude_bj=cfg.EXCLUDE_BJ)
     except TypeError:
-        df = load_panel_data(cfg.DATA_DIR, cfg.DATA_TEST_DIR, list(range(2016, 2027)), file_prefix="train")
+        # 🔑 修改：传入 exclude_bj=cfg.EXCLUDE_BJ
+        df = load_panel_data(cfg.DATA_DIR, cfg.DATA_TEST_DIR, list(range(2016, 2027)), file_prefix="train", exclude_bj=cfg.EXCLUDE_BJ)
         
     df = compute_real_returns(cfg.RAW_PANEL, df, i=cfg.REBALANCE_DAYS)
     feature_cols = extract_valid_features(df)
@@ -110,13 +94,15 @@ def main(ablation=False):
     trainers = load_pretrained_models(str(cfg.MODEL_DIR), cfg.FEATURE_COLS)
     if not trainers:
         raise RuntimeError("未加载到任何模型，请先运行 script/train_models.py")
-    
+
     logging.info(f"Loading ablation models from {cfg.MODEL_DIR}...")
     trainers_ablation = load_pretrained_models(str(cfg.MODEL_DIR), cfg.FEATURE_SELECTED, ablation=True)
     if ablation and not trainers_ablation:
         raise RuntimeError("未加载到任何消融实验模型，请先运行 script/train_models.py 并启用消融实验")
 
-    test_start_date = pd.to_datetime('2025-01-01')
+    # start_date = '2025-01-01'
+    # start_date = '2026-01-01'
+    test_start_date = pd.to_datetime(start_date) if start_date else pd.to_datetime('2025-01-01')
     df_test = df[df['TRADE_DT'] >= test_start_date].copy()
     logging.info(f"🔒 数据隔离完成 | 样本外测试集形状: {df_test.shape} (起始日: {test_start_date})")
 
@@ -124,25 +110,23 @@ def main(ablation=False):
         logging.info("🧪 使用消融实验模型进行回测...")
         engine_ab = BacktestEngine(df_test, cfg, trainers=trainers_ablation, label_col=f'label_{cfg.REBALANCE_DAYS}', ablation=True)
         results_ab = engine_ab.run()
-        plot_prediction_error(engine_ab.mse_results, str(cfg.FIG_DIR), suffix="_ablation")
+        plot_prediction_error(engine_ab.mse_results, str(cfg.FIG_DIR), suffix="_ablation", start_date=start_date)
 
-    # 🔑 2. 全量特征回测
     logging.info("🚀 使用预训练模型进行回测...")
     engine = BacktestEngine(df_test, cfg, trainers=trainers, label_col=f'label_{cfg.REBALANCE_DAYS}')
     results = engine.run()
-    
-    # 绘制全量模型的误差图
-    plot_prediction_error(engine.mse_results, str(cfg.FIG_DIR), suffix="_full")
+    plot_prediction_error(engine.mse_results, str(cfg.FIG_DIR), suffix="_full", start_date=start_date)
 
     if ablation:
         for name in results_ab.keys():
-            results[name + "_ablation"] = results_ab[name]
+            if name not in ['ElasticNet', 'BuyAndHoldAll', 'OptSharpe']:
+                results[name + "_ablation"] = results_ab[name]
 
     for name, pf in engine.portfolios.items():
         pf.save_logs(name, str(cfg.LOG_DIR))
 
     logging.info("📊 生成图表...")
-    metrics_summary = evaluate_and_plot(results, str(cfg.OUT_DIR), str(cfg.FIG_DIR))
+    metrics_summary = evaluate_and_plot(results, str(cfg.OUT_DIR), str(cfg.FIG_DIR), start_date=start_date, TOP_K=cfg.TOP_K)
 
     print("\n" + "="*90)
     print("🏆 回测综合绩效评估 (Out-of-Sample / Test Set)")
@@ -164,9 +148,12 @@ def main(ablation=False):
         win_rate = (t_stats['wins'] / total_trades * 100) if total_trades > 0 else 0.0
         
         print(f"{name:<15} | {total_ret:>9.2%} | {ann_ret:>10.2%} | {max_dd:>9.2%} | {sharpe:>7.3f} | {win_rate:>9.2f}% | {total_trades:>13}")
-        summary_json["models"][name] = {"total_return": float(total_ret), "annual_return": float(ann_ret),
+        
+        summary_json["models"][name] = {
+            "total_return": float(total_ret), "annual_return": float(ann_ret),
             "max_drawdown": float(max_dd), "sharpe_ratio": float(sharpe),
-            "trade_statistics": {"win_rate_pct": float(win_rate), "total_closed_trades": int(total_trades)}}
+            "trade_statistics": {"win_rate_pct": float(win_rate), "total_closed_trades": int(total_trades)}
+        }
     print("="*90 + "\n")
     
     json_path = cfg.OUT_DIR / "backtest_summary.json"
@@ -174,9 +161,9 @@ def main(ablation=False):
         json.dump(summary_json, f, indent=4, ensure_ascii=False)
     logging.info(f"✅ 综合绩效汇总已保存至 JSON: {json_path}")
 
-    # logging.info("🔍 启动 SHAP 因子可解释性分析...")
     engine.analyze_shap(str(cfg.FIG_DIR), sample_size=cfg.SHAP_SAMPLE_SIZE)
     logging.info("✅ 全部流程完成！")
 
 if __name__ == "__main__":
-    main()
+    main(start_date='2025-01-01')
+    main(start_date='2026-01-01')  # 可选：运行第二次回测，起始日为 2026-01-01

@@ -6,12 +6,14 @@ import numpy as np
 import warnings
 from typing import List, Dict
 
-def load_panel_data(data_root: str, data_test_root: str, years: List[int], file_prefix: str = "train", load_train: bool = True, load_test: bool = True) -> pd.DataFrame:
+# 🔑 修改函数签名，增加 exclude_bj 参数
+def load_panel_data(data_root: str, data_test_root: str, years: List[int], file_prefix: str = "train", load_train: bool = True, load_test: bool = True, exclude_bj: bool = False) -> pd.DataFrame:
     dfs = []
     if data_root is not None and load_train:
         print(f"Loading training data from: {data_root} | Years: {years} | File prefix: {file_prefix}")
     if data_test_root is not None and load_test:
         print(f"Loading test data from: {data_test_root}")
+
     # 1. 加载训练集
     if load_train and data_root:
         for y in years:
@@ -23,7 +25,7 @@ def load_panel_data(data_root: str, data_test_root: str, years: List[int], file_
                 dfs.append(df)
             else:
                 print(f"⚠️ 警告: 未找到训练数据: {path}")
-                
+
     # 2. 加载测试集
     if load_test and data_test_root:
         if os.path.isdir(data_test_root):
@@ -40,10 +42,23 @@ def load_panel_data(data_root: str, data_test_root: str, years: List[int], file_
                 df['TRADE_DT'] = pd.to_datetime(df['TRADE_DT'].astype(str), format='%Y%m%d')
                 df['DATA_SOURCE'] = 'test'
                 dfs.append(df)
-                
+
     if not dfs: 
         raise FileNotFoundError("未找到任何 parquet 数据")
-    return pd.concat(dfs, ignore_index=True).sort_values(['TRADE_DT', 'S_INFO_WINDCODE']).reset_index(drop=True)
+
+    df_final = pd.concat(dfs, ignore_index=True).sort_values(['TRADE_DT', 'S_INFO_WINDCODE']).reset_index(drop=True)
+
+    # Print S_INFO_WINDCODE value counts for debugging
+    print("S_INFO_WINDCODE value counts (top 10):")
+    print(df_final['S_INFO_WINDCODE'].value_counts().head(10))
+    # 🔑 新增：北交所数据过滤逻辑
+    if exclude_bj:
+        original_count = len(df_final)
+        # 确保股票代码为字符串类型，并过滤掉以 '_BJ' 结尾的行
+        df_final = df_final[~df_final['S_INFO_WINDCODE'].astype(str).str.endswith('.BJ')].reset_index(drop=True)
+        print(f"🚫 已排除北交所 (.BJ) 数据 | 移除行数: {original_count - len(df_final):,} | 剩余行数: {len(df_final):,}")
+
+    return df_final
 
 def extract_valid_features(df: pd.DataFrame) -> List[str]:
     cols = df.columns.tolist()
@@ -62,7 +77,6 @@ def extract_valid_features(df: pd.DataFrame) -> List[str]:
 
 def compute_real_returns(raw_panel_path: str, panel: pd.DataFrame, i: int) -> pd.DataFrame:
     target = 'S_DQ_ADJCLOSE'
-    # target = 'S_DQ_CLOSE'
     raw = pd.read_parquet(raw_panel_path, columns=['S_INFO_WINDCODE', 'TRADE_DT', target])
     print(f"Loaded target: {target} from {raw_panel_path} | shape: {raw.shape}")
     raw['TRADE_DT'] = pd.to_datetime(raw['TRADE_DT'].astype(str), format='%Y%m%d')
@@ -92,5 +106,5 @@ def compute_ic_ir(factor_cols: List[str], label_col: str, df: pd.DataFrame) -> D
                 else:
                     ic = valid[col].corr(valid[label_col], method='spearman')
                     ic_series[col].append(ic if not np.isnan(ic) else 0.0)
-    ic_df = pd.DataFrame(ic_series)
+        ic_df = pd.DataFrame(ic_series)
     return {col: {"mean_ic": float(ic_df[col].mean()), "icir": float(ic_df[col].mean() / (ic_df[col].std() + 1e-8)), "ic_positive_ratio": float((ic_df[col] > 0).mean()), "sample_days": len(ic_df[col])} for col in factor_cols}

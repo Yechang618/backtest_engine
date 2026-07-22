@@ -51,30 +51,29 @@ def save_models(trainers, model_dir, ablation=False):
 def main():
     setup_logging()
     cfg = Config()
-    
+
     # 1. 仅加载训练集数据
     logging.info("📦 仅加载训练集数据...")
-    # df = load_panel_data(cfg.DATA_DIR, None, list(range(2016, 2025)), file_prefix="train", load_train=True, load_test=False)
-    df = load_panel_data(None, cfg.DATA_DIR, list(range(2016, 2025)), file_prefix="train", load_train=True, load_test=True)
+    # 🔑 修改：传入 exclude_bj=cfg.EXCLUDE_BJ
+    df = load_panel_data(None, cfg.DATA_DIR, list(range(2016, 2025)), file_prefix="train", load_train=True, load_test=True, exclude_bj=cfg.EXCLUDE_BJ)
+    
     df = compute_real_returns(cfg.RAW_PANEL, df, i=cfg.REBALANCE_DAYS)
     # Get df from 2016 to 2024
     df = df[(df['TRADE_DT'] >= pd.to_datetime('2015-06-01')) & (df['TRADE_DT'] <= pd.to_datetime('2024-07-31'))].copy()
+    
     feature_cols = extract_valid_features(df)
     cfg.FEATURE_COLS = feature_cols
     label_col = f'label_{cfg.REBALANCE_DAYS}'
-    
     logging.info(f"📊 训练集形状: {df.shape} | 特征数: {len(feature_cols)}")
+    print(f"🔑 特征列示例: {feature_cols}")
 
     # 2. 准备训练数据 (严格过滤 FEATURE_MASK 和 NaN)
-    # train_df = df[(df['FEATURE_MASK'] == 1) & (df['DATA_SOURCE'] == 'train')].dropna(subset=[label_col] + feature_cols)
-    train_df = df[(df['FEATURE_MASK'] == 1) ].dropna(subset=[label_col] + feature_cols)
-    print(f"Column names: {train_df.columns.tolist()}")
+    train_df = df[(df['FEATURE_MASK'] == 1)].dropna(subset=[label_col] + feature_cols)
     X_train, y_train = train_df[feature_cols], train_df[label_col]
     logging.info(f"🔧 有效训练样本数: {len(X_train)}")
 
     # 3. 初始化并训练模型
     trainers = {}
-    
     logging.info("🚀 开始训练 ElasticNet...")
     trainers['ElasticNet'] = ElasticNet(alpha=0.5, l1_ratio=0.5, random_state=42, max_iter=1000)
     trainers['ElasticNet'].fit(X_train, y_train)
@@ -87,58 +86,34 @@ def main():
     trainers['LightGBM'] = lgb.LGBMRegressor(n_estimators=500, max_depth=5, learning_rate=0.05, random_state=42, verbosity=-1)
     trainers['LightGBM'].fit(X_train, y_train)
 
-    # logging.info("🚀 开始训练 Transformer (Tabular)...")
-    # # Transformer 训练可能较慢，此处使用轻量级配置
-    # trainers['Transformer'] = PyTorchTabularRegressor(
-    #     input_dim=len(feature_cols), hidden_dim=128, n_heads=4, n_layers=2, 
-    #     epochs=30, batch_size=512, lr=1e-3
-    # )
-    # trainers['Transformer'].fit(X_train, y_train)
-
     # 4. 保存模型
     save_models(trainers, cfg.MODEL_DIR)
     logging.info("✅ 模型训练流程全部完成！")
 
     # 消融实验
-    if cfg.SHAP_ABLATION and cfg.FEATURE_SELECTED:
+    if cfg.SHAP_ABLATION and cfg.FEATURE_SELECTED_LGBM and cfg.FEATURE_SELECTED_XGB:
         trainers_ablation = {}
-        logging.info(f"🧪 消融实验模式开启 | 仅训练选定特征: {cfg.FEATURE_SELECTED}")
-        ablation_train_df = train_df[cfg.FEATURE_SELECTED + [label_col]]
-        X_ablation, y_ablation = ablation_train_df[cfg.FEATURE_SELECTED], ablation_train_df[label_col]
-        
+        logging.info(f"🧪 消融实验模式开启 | 仅训练选定特征: {len(cfg.FEATURE_SELECTED)} 个")
+        ablation_train_df = train_df[cfg.FEATURE_SELECTED_LGBM + [label_col]]
+        X_ablation, y_ablation = ablation_train_df[cfg.FEATURE_SELECTED_LGBM], ablation_train_df[label_col]
+
         logging.info("🚀 开始训练消融实验模型 (LightGBM)...")
         trainers_ablation['LightGBM'] = lgb.LGBMRegressor(n_estimators=500, max_depth=5, learning_rate=0.05, random_state=42, verbosity=-1)
         trainers_ablation['LightGBM'].fit(X_ablation, y_ablation)
-        
-        # 保存消融实验模型
-        # os.makedirs(cfg.MODEL_DIR, exist_ok=True)
-        # joblib.dump(trainers_ablation['LightGBM'], os.path.join(cfg.MODEL_DIR, "ablation_lightgbm.pkl"))
-        # logging.info(f"✅ 消融实验模型已保存至: {os.path.join(cfg.MODEL_DIR, 'ablation_lightgbm.pkl')}")
 
-        # XGBoost 消融实验
-        logging.info("🚀 开始训练消融实验模型 (XGBoost)...")
-        trainers_ablation['XGBoost'] = xgb.XGBRegressor(n_estimators=500, max_depth=5, learning_rate=0.05, random_state=42, verbosity=0)
-        trainers_ablation['XGBoost'].fit(X_ablation, y_ablation)
-        
-        # 保存消融实验模型
-        # joblib.dump(trainers_ablation['XGBoost'], os.path.join(cfg.MODEL_DIR, "ablation_xgboost.pkl"))
-        # logging.info(f"✅ 消融实验模型已保存至: {os.path.join(cfg.MODEL_DIR, 'ablation_xgboost.pkl')}")
-
-        # ElasticNet 消融实验
         logging.info("🚀 开始训练消融实验模型 (ElasticNet)...")
         trainers_ablation['ElasticNet'] = ElasticNet(alpha=0.5, l1_ratio=0.5, random_state=42, max_iter=1000)
         trainers_ablation['ElasticNet'].fit(X_ablation, y_ablation)
 
-        # 保存消融实验模型
-        # joblib.dump(trainers_ablation['ElasticNet'], os.path.join(cfg.MODEL_DIR, "ablation_elasticnet.pkl"))
-        # logging.info(f"✅ 消融实验模型已保存至: {os.path.join(cfg.MODEL_DIR, 'ablation_elasticnet.pkl')}")
+        ablation_xgb_train_df = train_df[cfg.FEATURE_SELECTED_XGB + [label_col]]
+        X_ablation, y_ablation = ablation_xgb_train_df[cfg.FEATURE_SELECTED_XGB], ablation_xgb_train_df[label_col]
+        
+        logging.info("🚀 开始训练消融实验模型 (XGBoost)...")
+        trainers_ablation['XGBoost'] = xgb.XGBRegressor(n_estimators=500, max_depth=5, learning_rate=0.05, random_state=42, verbosity=0)
+        trainers_ablation['XGBoost'].fit(X_ablation, y_ablation)
 
-        # 保存所有消融实验模型
         save_models(trainers_ablation, cfg.MODEL_DIR, ablation=True)
-
-        # 5. 消融实验完成
         logging.info("✅ 消融实验训练流程全部完成！")
-
 
 if __name__ == "__main__":
     main()
