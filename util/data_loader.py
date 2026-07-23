@@ -89,6 +89,61 @@ def compute_real_returns(raw_panel_path: str, panel: pd.DataFrame, i: int) -> pd
     merged[target] = merged[target].ffill()
     return merged
 
+def compute_derived_factors(df: pd.DataFrame, price_col: str = 'S_DQ_ADJCLOSE') -> pd.DataFrame:
+    """
+    计算并增加6个衍生因子：过去10/20/30天的平均收益率与夏普比率。
+    计算后自动进行截面标准化(_MKT_Z)，以兼容 extract_valid_features 的提取规则。
+    """
+    print(f"🧮 开始计算衍生因子 (动量与夏普) | 使用价格列: {price_col}...")
+    
+    # 确保按股票和日期排序，这是计算时间序列滚动指标的前提
+    df = df.sort_values(['S_INFO_WINDCODE', 'TRADE_DT']).copy()
+    
+    # 1. 计算日收益率
+    df['_daily_ret'] = df.groupby('S_INFO_WINDCODE')[price_col].pct_change()
+    
+    raw_cols = []
+    # 2. 计算滚动指标 (按股票分组)
+    for window in [10, 20, 30]:
+        # 过去 N 天的平均收益率
+        mean_ret = df.groupby('S_INFO_WINDCODE')['_daily_ret'].transform(
+            lambda x: x.rolling(window=window, min_periods=window).mean()
+        )
+        raw_mean_col = f'RET_MEAN_{window}D_RAW'
+        df[raw_mean_col] = mean_ret
+        raw_cols.append(raw_mean_col)
+        
+        # 过去 N 天的夏普比率 (Mean / Std)
+        std_ret = df.groupby('S_INFO_WINDCODE')['_daily_ret'].transform(
+            lambda x: x.rolling(window=window, min_periods=window).std()
+        )
+        # 防止除以 0 (例如停牌或连续几天价格不变)
+        sharpe = mean_ret / (std_ret + 1e-8)
+        raw_sharpe_col = f'SHARPE_{window}D_RAW'
+        df[raw_sharpe_col] = sharpe
+        raw_cols.append(raw_sharpe_col)
+        
+    # 3. 截面标准化 (按 TRADE_DT 分组进行 Z-score 标准化)
+    print("  🔄 正在进行截面标准化 (Z-score)...")
+    for col in raw_cols:
+        target_col = col.replace('_RAW', '_MKT_Z')
+        
+        # 截面去极值与标准化 (使用 transform 保持原 DataFrame 形状)
+        grouped = df.groupby('TRADE_DT')[col]
+        mean = grouped.transform('mean')
+        std = grouped.transform('std')
+        
+        # 标准化并处理极小标准差的情况
+        df[target_col] = (df[col] - mean) / (std + 1e-8)
+        
+    # 4. 清理中间变量
+    df.drop(columns=['_daily_ret'] + raw_cols, inplace=True)
+    
+    new_factors = [c.replace('_RAW', '_MKT_Z') for c in raw_cols]
+    print(f"  ✅ 衍生因子计算完成！新增特征: {new_factors}")
+    
+    return df
+
 def compute_ic_ir(factor_cols: List[str], label_col: str, df: pd.DataFrame) -> Dict:
     ic_series = {col: [] for col in factor_cols}
     grouped = df.groupby('TRADE_DT')

@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 # 🔑 修复：引入 compute_real_returns 以生成标签列
-from util.data_loader import extract_valid_features, compute_ic_ir, compute_real_returns, load_panel_data
+from util.data_loader import extract_valid_features, compute_ic_ir, compute_real_returns, load_panel_data, compute_derived_factors
 from config.Config import Config
 
 # 尝试导入模型和 SHAP 库
@@ -94,6 +94,9 @@ def run_quarterly_analysis(cfg: Config, model_type: str = 'LightGBM'):
     # 🔑 核心修复：计算 T+REBALANCE_DAYS 的真实收益率作为标签
     logging.info(f"🧮 计算真实收益率标签 label_{cfg.REBALANCE_DAYS}...")
     df = compute_real_returns(cfg.RAW_PANEL, df, i=cfg.REBALANCE_DAYS)
+
+    # 🔑 新增：计算衍生因子 (动量与夏普)
+    df = compute_derived_factors(df, price_col='S_DQ_ADJCLOSE') 
     
     logging.info("🔍 提取有效特征列...")
     feature_cols = extract_valid_features(df)

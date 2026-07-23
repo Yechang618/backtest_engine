@@ -13,7 +13,9 @@ ROOT = Path(__file__).resolve().parents[1]
 print(f"🔧 Backtest Engine Root: {ROOT}")
 sys.path.insert(0, str(ROOT))
 
-from util.data_loader import load_panel_data, compute_real_returns, extract_valid_features
+# from util.data_loader import load_panel_data, compute_real_returns, extract_valid_features
+from util.data_loader import load_panel_data, compute_real_returns, extract_valid_features, compute_derived_factors # 🔑 新增导入
+
 from src.backtest_engine import BacktestEngine
 from util.metrics import evaluate_and_plot
 from config.Config import Config
@@ -86,6 +88,10 @@ def main(start_date='2025-01-01'):
         df = load_panel_data(cfg.DATA_DIR, cfg.DATA_TEST_DIR, list(range(2016, 2027)), file_prefix="train", exclude_bj=cfg.EXCLUDE_BJ)
         
     df = compute_real_returns(cfg.RAW_PANEL, df, i=cfg.REBALANCE_DAYS)
+
+    # 🔑 新增：计算衍生因子 (必须与训练集保持完全一致的处理逻辑)
+    df = compute_derived_factors(df, price_col='S_DQ_ADJCLOSE')
+    
     feature_cols = extract_valid_features(df)
     cfg.FEATURE_COLS = feature_cols  
     logging.info(f"📊 数据加载完成 | 总形状: {df.shape} | 特征数: {len(feature_cols)}")

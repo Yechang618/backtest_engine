@@ -10,7 +10,9 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from util.data_loader import load_panel_data, compute_real_returns, extract_valid_features
+# from util.data_loader import load_panel_data, compute_real_returns, extract_valid_features
+from util.data_loader import load_panel_data, compute_real_returns, extract_valid_features, compute_derived_factors # 🔑 新增导入
+
 from config.Config import Config
 # from src.transformer_model import PyTorchTabularRegressor, SimpleTabularTransformer
 from sklearn.linear_model import ElasticNet
@@ -58,6 +60,10 @@ def main():
     df = load_panel_data(None, cfg.DATA_DIR, list(range(2016, 2025)), file_prefix="train", load_train=True, load_test=True, exclude_bj=cfg.EXCLUDE_BJ)
     
     df = compute_real_returns(cfg.RAW_PANEL, df, i=cfg.REBALANCE_DAYS)
+
+    # 🔑 新增：计算衍生因子 (动量与夏普)
+    df = compute_derived_factors(df, price_col='S_DQ_ADJCLOSE') 
+    
     # Get df from 2016 to 2024
     df = df[(df['TRADE_DT'] >= pd.to_datetime('2015-06-01')) & (df['TRADE_DT'] <= pd.to_datetime('2024-07-31'))].copy()
     
