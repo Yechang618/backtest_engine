@@ -38,6 +38,97 @@ def load_pretrained_models(model_dir: str, feature_cols: list, ablation=False):
             trainers.update(joblib.load(ablation_sklearn_path))
     return trainers
 
+
+def plot_daily_ic(daily_ic_results, dynamic_switch_history, figure_dir):
+    """绘制各模型的每日 Rank IC 随时间变化的曲线 (10日滚动平均)"""
+    if not any(daily_ic_results.values()):
+        logging.warning("⚠️ 无有效每日 IC 数据，跳过绘图。")
+        return
+
+    # 创建上下两个子图，高度比例为 3:1，共享 X 轴
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(14, 10), gridspec_kw={'height_ratios': [3, 1]}, sharex=True)
+    
+    # plt.figure(figsize=(14, 6))
+    
+    # for name, records in daily_ic_results.items():
+    #     if not records: continue
+    #     df_ic = pd.DataFrame(records).set_index('TRADE_DT')
+    #     # 计算 10 日滚动平均以平滑噪音，便于观察趋势
+    #     df_ic['IC_MA10'] = df_ic['IC'].rolling(window=10, min_periods=1).mean()
+    #     plt.plot(df_ic.index, df_ic['IC_MA10'], label=f'{name} (10D MA)', lw=1.5)
+        
+    # plt.title('Daily Cross-Sectional Rank IC (10-Day Moving Average)')
+    # plt.xlabel('Date')
+    # plt.ylabel('Rank IC')
+    # plt.axhline(0, color='black', linestyle='--', lw=0.8, alpha=0.5)
+    # plt.gca().xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m'))
+    # plt.grid(True, alpha=0.3)
+    # plt.legend()
+    # plt.tight_layout()
+    
+    # os.makedirs(figure_dir, exist_ok=True)
+    # path = os.path.join(figure_dir, 'daily_rank_ic_trend.png')
+    # plt.savefig(path, dpi=150)
+    # plt.close()
+    # logging.info(f"✅ 每日 Rank IC 趋势图已保存至: {path}")
+    # ─────────────────────────────────────────────────────────────
+    # 上图：Rank IC 趋势
+    # ─────────────────────────────────────────────────────────────
+    for name, records in daily_ic_results.items():
+        if not records: continue
+        df_ic = pd.DataFrame(records).set_index('TRADE_DT')
+        df_ic['IC_MA10'] = df_ic['IC'].rolling(window=10, min_periods=1).mean()
+        ax1.plot(df_ic.index, df_ic['IC_MA10'], label=f'{name} (10D MA)', lw=1.5)
+        
+    ax1.set_title('Daily Cross-Sectional Rank IC (10-Day Moving Average)', fontsize=14)
+    ax1.set_ylabel('Rank IC', fontsize=12)
+    ax1.axhline(0, color='black', linestyle='--', lw=0.8, alpha=0.5)
+    ax1.grid(True, alpha=0.3)
+    ax1.legend(loc='upper left')
+    
+    # ─────────────────────────────────────────────────────────────
+    # 下图：DynamicSwitch 模型切换历史 (阶梯图)
+    # ─────────────────────────────────────────────────────────────
+    if dynamic_switch_history:
+        df_switch = pd.DataFrame(dynamic_switch_history).set_index('TRADE_DT')
+        
+        # 提取所有出现过的模型并排序，映射为整数以便绘制阶梯图
+        unique_models = sorted(list(df_switch['Model'].unique()))
+        model_to_int = {m: i for i, m in enumerate(unique_models)}
+        
+        df_switch['Model_Int'] = df_switch['Model'].map(model_to_int)
+        
+        # 使用 step 绘制阶梯图，where='post' 表示值在下一个切换点之前保持不变
+        ax2.step(df_switch.index, df_switch['Model_Int'], where='post', color='purple', lw=2.5, alpha=0.8)
+        
+        # 设置 Y 轴刻度为模型名称
+        ax2.set_yticks(list(model_to_int.values()))
+        ax2.set_yticklabels(list(model_to_int.keys()), fontsize=11)
+        ax2.set_ylabel('DynamicSwitch\nActive Model', fontsize=12)
+        ax2.grid(True, alpha=0.3, axis='y')
+        
+        # 为阶梯线添加轻微的水平填充，增强视觉区分度
+        for i, model in enumerate(unique_models):
+            ax2.axhspan(i - 0.4, i + 0.4, color=plt.cm.tab10(i % 10), alpha=0.15, zorder=0)
+            
+    else:
+        ax2.text(0.5, 0.5, 'No DynamicSwitch History', ha='center', va='center', transform=ax2.transAxes, fontsize=12, color='gray')
+        ax2.set_yticks([])
+    
+    # ─────────────────────────────────────────────────────────────
+    # 全局 X 轴格式化
+    # ─────────────────────────────────────────────────────────────
+    ax2.set_xlabel('Date', fontsize=12)
+    plt.gca().xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m'))
+    plt.xticks(rotation=45, ha='right')
+    
+    plt.tight_layout()
+    os.makedirs(figure_dir, exist_ok=True)
+    path = os.path.join(figure_dir, 'daily_rank_ic_trend.png')
+    plt.savefig(path, dpi=150, bbox_inches='tight')
+    plt.close()
+    logging.info(f"✅ 每日 Rank IC 趋势图 (含动态切换) 已保存至: {path}")
+
 def plot_prediction_error(mse_results, figure_dir, suffix="", start_date=''):
     cfg = Config()
     """绘制模型预测误差 (MSE) 随时间变化的时序图 (无未来函数版)"""
@@ -125,7 +216,7 @@ def main(start_date='2025-01-01'):
 
     if ablation:
         for name in results_ab.keys():
-            if name not in ['ElasticNet', 'BuyAndHoldAll', 'OptSharpe']:
+            if name not in ['ElasticNet', 'BuyAndHoldAll', 'OptSharpe', 'DynamicSwitch']:
                 results[name + "_ablation"] = results_ab[name]
 
     for name, pf in engine.portfolios.items():
@@ -133,6 +224,11 @@ def main(start_date='2025-01-01'):
 
     logging.info("📊 生成图表...")
     metrics_summary = evaluate_and_plot(results, str(cfg.OUT_DIR), str(cfg.FIG_DIR), start_date=start_date, TOP_K=cfg.TOP_K)
+
+    # 🔑 新增：绘制每日 Rank IC 趋势图
+    # plot_daily_ic(engine.daily_ic_results, str(cfg.FIG_DIR))
+    # 🔑 修改：传入 engine.dynamic_switch_history
+    plot_daily_ic(engine.daily_ic_results, getattr(engine, 'dynamic_switch_history', []), str(cfg.FIG_DIR))
 
     print("\n" + "="*90)
     print("🏆 回测综合绩效评估 (Out-of-Sample / Test Set)")

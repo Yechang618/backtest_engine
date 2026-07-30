@@ -29,10 +29,21 @@ class BacktestEngine:
         self.trainers = trainers
         self._baseline_init = False
 
+        # 🔑 功能一：每日 Rank IC 记录
+        self.daily_ic_results = {m: [] for m in self.cfg.MODELS}
+        
+        # 🔑 功能二：动态切换策略状态
+        self.dynamic_current_model = getattr(config, 'DYNAMIC_SWITCH_INIT_MODEL', 'OptSharpe')
+        self.dynamic_ic_history = {m: [] for m in getattr(config, 'DYNAMIC_SWITCH_BASE_MODELS', [])}
+        self.dynamic_b = getattr(config, 'DYNAMIC_SWITCH_B', 1.05)
+
         # 🔑 无未来函数设计：预测误差延迟结算机制
         self.mse_results = {m: [] for m in self.cfg.MODELS}
         self.prediction_cache = defaultdict(dict)  # 结构: {pred_date: {model_name: {code: pred_value}}}
-        
+
+        # 🔑 新增：记录 DynamicSwitch 每日使用的模型历史
+        self.dynamic_switch_history = []
+
         self._check_feature_alignment() # 🔑 新增：特征对齐校验
         logging.info(f"BacktestEngine 初始化完成 (加载预训练模型) | 模型: {list(self.trainers.keys())} | 样本数: {len(self.df)}")
 
@@ -108,13 +119,96 @@ class BacktestEngine:
                     results[m].append({'TRADE_DT': date, 'Value': nav})
                 continue
 
+            # 🔑 功能一：计算每日截面 Rank IC
+            tradable = daily[daily.get('BUY_MASK', 1) == 1].copy()
+            true_labels = tradable[self.label_col]
+            valid_mask = true_labels.notna()
+            
+            if valid_mask.sum() > 30:  # 至少需要30只股票才能计算有效的截面IC
+                valid_tradable = tradable[valid_mask]
+                valid_true_labels = true_labels[valid_mask]
+                
+                for m in self.cfg.MODELS:
+                    if m in ['BuyAndHoldAll']: 
+                        continue
+                    
+                    # DynamicSwitch 的 IC 等于其当前底层模型的 IC
+                    m_to_calc = self.dynamic_current_model if m == 'DynamicSwitch' else m
+                    
+                    if m_to_calc == 'OptSharpe':
+                        preds = self._calc_opt_sharpe_weights(valid_tradable.index.tolist())
+                    elif m_to_calc in self.trainers:
+                        try:
+                            preds = self.trainers[m_to_calc].predict(valid_tradable[self.feature_cols])
+                        except:
+                            continue
+                    else:
+                        continue
+                        
+                    preds_series = pd.Series(preds, index=valid_tradable.index)
+
+                    # 🔑 修复：检查是否为常数数组，避免 ConstantInputWarning
+                    if preds_series.std() < 1e-10 or valid_true_labels.std() < 1e-10:
+                        continue  # 跳过常数情况
+
+                    ic = valid_true_labels.corr(preds_series, method='spearman')
+                    
+                    if not np.isnan(ic):
+                        self.daily_ic_results[m].append({'TRADE_DT': date, 'IC': ic})
+                        
+                        # 更新动态切换的历史 IC (仅保留最近10天)
+                        if m in self.dynamic_ic_history:
+                            self.dynamic_ic_history[m].append(ic)
+                            if len(self.dynamic_ic_history[m]) > 10:
+                                self.dynamic_ic_history[m] = self.dynamic_ic_history[m][-10:]
+
             # 3. 调仓与预测逻辑 (🔑 仅缓存，不计算误差)
-            if (day_cnt - self.cfg.WARMUP_DAYS) % self.cfg.REBALANCE_DAYS == 0:
+            is_rebalance_day = (day_cnt - self.cfg.WARMUP_DAYS) % self.cfg.REBALANCE_DAYS == 0
+            if is_rebalance_day:
+            # if (day_cnt - self.cfg.WARMUP_DAYS) % self.cfg.REBALANCE_DAYS == 0:
+                            # 🔑 功能二：动态切换逻辑
+                if 'DynamicSwitch' in self.cfg.MODELS:
+                    avg_ics = {}
+                    for m in self.dynamic_ic_history:
+                        if len(self.dynamic_ic_history[m]) >= 10:
+                            avg_ics[m] = np.mean(self.dynamic_ic_history[m])
+                        elif len(self.dynamic_ic_history[m]) > 0:
+                            avg_ics[m] = np.mean(self.dynamic_ic_history[m]) # 不足10天用现有平均
+                        else:
+                            avg_ics[m] = -np.inf
+                    
+                    if avg_ics:
+                        best_model = max(avg_ics, key=avg_ics.get)
+                        best_ic = avg_ics[best_model]
+                        
+                        # 只有当当前模型有足够历史数据时才进行比较，防止初始阶段频繁切换
+                        if len(self.dynamic_ic_history[self.dynamic_current_model]) >= 10:
+                            current_ic = np.mean(self.dynamic_ic_history[self.dynamic_current_model])
+                            if best_ic > self.dynamic_b * current_ic and best_model != self.dynamic_current_model:
+                                logger.info(f"🔄 DynamicSwitch 切换模型: {self.dynamic_current_model} -> {best_model} (Avg IC: {current_ic:.4f} -> {best_ic:.4f})")
+                                self.dynamic_current_model = best_model
+
                 tradable = daily[daily.get('BUY_MASK', 1) == 1].copy()
                 if not tradable.empty:
                     for name in self.cfg.MODELS:
                         if name == 'BuyAndHoldAll': continue
-                        if name == 'OptSharpe':
+
+                        if name == 'DynamicSwitch':
+                            selected_model = self.dynamic_current_model
+                            if selected_model == 'OptSharpe':
+                                weights = self._calc_opt_sharpe_weights(tradable.index.tolist())
+                                top50 = weights.nlargest(self.cfg.TOP_K).index.tolist()
+                            elif selected_model in self.trainers:
+                                if selected_model == 'LightGBM_ablation':
+                                    preds = self.trainers[selected_model].predict(tradable[self.feature_cols_lgbm])
+                                elif selected_model == 'XGBoost_ablation':
+                                    preds = self.trainers[selected_model].predict(tradable[self.feature_cols_xgb])
+                                else:
+                                    preds = self.trainers[selected_model].predict(tradable[self.feature_cols])
+                                top50 = pd.Series(preds, index=tradable.index).nlargest(self.cfg.TOP_K).index.tolist()
+                            else:
+                                top50 = []
+                        elif name == 'OptSharpe':
                             weights = self._calc_opt_sharpe_weights(tradable.index.tolist())
                             top50 = weights.nlargest(self.cfg.TOP_K).index.tolist()
                         else:
@@ -143,6 +237,13 @@ class BacktestEngine:
             for m in self.cfg.MODELS:
                 nav = self.portfolios[m].update_daily(date, price_dict)
                 results[m].append({'TRADE_DT': date, 'Value': nav})
+
+            # 🔑 新增：记录当日 DynamicSwitch 使用的模型
+            if 'DynamicSwitch' in self.cfg.MODELS:
+                self.dynamic_switch_history.append({
+                    'TRADE_DT': date,
+                    'Model': self.dynamic_current_model
+                })
                 
             # 5. 🔑 无未来函数误差结算 (Delayed Realized Error)
             # 计算需要结算的预测日 (T 日 = 当前 T+i 日 - i 个交易日)
