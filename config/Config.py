@@ -4,8 +4,9 @@ from pathlib import Path
 
 class Config:
     # 📂 数据路径 (只读)
-    Date = "20260813"
-    DATA_RAW_ROOT, DATA_ROOT = "/data/data_process/5.27_update/rebuild", "/data/data_process/5.27_update/rebuild/model_training_step15_selected_panel"
+    Date = "20260812"
+    # DATA_RAW_ROOT, DATA_ROOT = "/data/data_process/5.27_update/rebuild", "/data/data_process/5.27_update/rebuild/model_training_step15_selected_panel"
+    DATA_RAW_ROOT, DATA_ROOT = r"C:\Users\yecha\workspace\data", r"C:\Users\yecha\workspace\data"
     RAW_PANEL = f"{DATA_RAW_ROOT}/market_base_with_industry_20150101_{Date}.parquet"
     DATA_TEST_DIR = f"{DATA_ROOT}/model_ready_panel_selected_fin_ind_pv_adj_masks_rebuild_20150105_{Date}.parquet"
     DATA_DIR = DATA_TEST_DIR
@@ -37,13 +38,24 @@ class Config:
     SLIPPAGE = 0.000
     STAMP_TAX_RATE = 0.0000
 
-    # 🤖 模型配置 ✅ 新增 DynamicSwitch 动态切换策略
-    MODELS = ['ElasticNet', 'XGBoost', 'LightGBM', 'OptSharpe', 'DynamicSwitch', 'BuyAndHoldAll']    
-    
-    # 🔄 动态切换策略配置 (功能二)
-    DYNAMIC_SWITCH_INIT_MODEL = 'OptSharpe'  # 初始使用的模型
-    DYNAMIC_SWITCH_BASE_MODELS = ['ElasticNet', 'XGBoost', 'LightGBM', 'OptSharpe', 'LightGBM_ablation', 'XGBoost_ablation']  # 参与竞选的基础模型
-    DYNAMIC_SWITCH_B = 1.00  # 切换阈值倍数 (新模型 IC > B * 当前模型 IC 时切换)
+    # 🤖 模型配置 ✅ 细分为 22, 23, 24 三个时间窗口变体
+    MODELS = [
+        'ElasticNet', 
+        'XGB-22', 'XGB-23', 'XGB-24', 
+        'LGBM-22', 'LGBM-23', 'LGBM-24', 
+        'OptSharpe', 'DynamicSwitch', 'BuyAndHoldAll'
+    ]    
+
+    # 🔄 动态切换策略配置 (包含所有细分模型及其消融版本)
+    DYNAMIC_SWITCH_INIT_MODEL = 'OptSharpe'  
+    DYNAMIC_SWITCH_BASE_MODELS = [
+        'ElasticNet', 'OptSharpe', 
+        'XGB-22', 'XGB-23', 'XGB-24', 
+        'LGBM-22', 'LGBM-23', 'LGBM-24',
+        'XGB-22_ablation', 'XGB-23_ablation', 'XGB-24_ablation',
+        'LGBM-22_ablation', 'LGBM-23_ablation', 'LGBM-24_ablation'
+    ]  
+    DYNAMIC_SWITCH_B = 1.00  
 
     # 🔍 SHAP 分析配置
     SHAP_SAMPLE_SIZE = 500

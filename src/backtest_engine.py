@@ -14,6 +14,8 @@ class BacktestEngine:
         self.df = df[df['FEATURE_MASK'] == 1].copy()
         self.cfg = config
         self.ablation = ablation
+        
+        # 🔑 根据是否消融，初始化三套特征集
         if self.ablation:
             self.feature_cols_lgbm = config.FEATURE_SELECTED_LGBM
             self.feature_cols_xgb = config.FEATURE_SELECTED_XGB
@@ -22,6 +24,7 @@ class BacktestEngine:
             self.feature_cols_lgbm = config.FEATURE_COLS
             self.feature_cols_xgb = config.FEATURE_COLS
             self.feature_cols = config.FEATURE_COLS
+
         print(f"🔧 BacktestEngine 初始化 | 样本数: {len(self.df)} | 特征数: {len(self.feature_cols_lgbm)} | 标签列: {label_col}")
         self.label_col = label_col
         self.portfolios = {m: PortfolioManager(config.INITIAL_CAPITAL, config.COMMISSION_RATE) for m in config.MODELS}
@@ -47,22 +50,32 @@ class BacktestEngine:
         self._check_feature_alignment() # 🔑 新增：特征对齐校验
         logging.info(f"BacktestEngine 初始化完成 (加载预训练模型) | 模型: {list(self.trainers.keys())} | 样本数: {len(self.df)}")
 
+    # 🔑 新增：特征路由辅助方法
+    def _get_features_for_model(self, model_name: str) -> List[str]:
+        if 'XGB' in model_name:
+            return self.feature_cols_xgb
+        elif 'LGBM' in model_name:
+            return self.feature_cols_lgbm
+        else:
+            return self.feature_cols
+
     def _check_feature_alignment(self):
-        """确保测试集特征顺序/名称与训练时一致"""
+        """确保测试集特征顺序/名称与训练时一致 (按模型类型分别对齐)"""
         for name, model in self.trainers.items():
             if hasattr(model, 'feature_names_in_'):
+                target_feats = self._get_features_for_model(name)
                 trained_features = list(model.feature_names_in_)
-                if name == 'LightGBM' and set(trained_features) != set(self.feature_cols_lgbm):
-                    logger.warning(f"⚠️ {name} 训练特征({len(trained_features)})与测试集特征({len(self.feature_cols_lgbm)})不匹配！")
-                    # 自动按训练顺序重排
-                    self.feature_cols_lgbm = [c for c in trained_features if c in self.feature_cols_lgbm]
-                    logger.info(f"✅ 已自动对齐 {name} 特征列顺序 | 最终数量: {len(self.feature_cols_lgbm)}")
-                elif name == 'XGBoost' and set(trained_features) != set(self.feature_cols_xgb):
-                    logger.warning(f"⚠️ {name} 训练特征({len(trained_features)})与测试集特征({len(self.feature_cols_xgb)})不匹配！")
-                    # 自动按训练顺序重排
-                    self.feature_cols_xgb = [c for c in trained_features if c in self.feature_cols_xgb]
-                    logger.info(f"✅ 已自动对齐 {name} 特征列顺序 | 最终数量: {len(self.feature_cols_xgb)}")
-                break
+                
+                if set(trained_features) != set(target_feats):
+                    aligned_feats = [c for c in trained_features if c in target_feats]
+                    logger.warning(f"⚠️ {name} 特征不匹配，已自动对齐至 {len(aligned_feats)} 个")
+                    
+                    if 'XGB' in name:
+                        self.feature_cols_xgb = aligned_feats
+                    elif 'LGBM' in name:
+                        self.feature_cols_lgbm = aligned_feats
+                    else:
+                        self.feature_cols = aligned_feats
 
     def _calc_opt_sharpe_weights(self, valid_codes: List[str]) -> pd.Series:
         eligible = [c for c in valid_codes if len(self.returns_history.get(c, [])) >= 30]
@@ -149,19 +162,16 @@ class BacktestEngine:
                 valid_true_labels = true_labels[valid_mask]
                 
                 for m in self.cfg.MODELS:
-                    if m in ['BuyAndHoldAll']: 
-                        continue
-                    
-                    # DynamicSwitch 的 IC 等于其当前底层模型的 IC
+                    if m in ['BuyAndHoldAll']: continue
                     m_to_calc = self.dynamic_current_model if m == 'DynamicSwitch' else m
                     
                     if m_to_calc == 'OptSharpe':
                         preds = self._calc_opt_sharpe_weights(valid_tradable.index.tolist())
                     elif m_to_calc in self.trainers:
                         try:
-                            preds = self.trainers[m_to_calc].predict(valid_tradable[self.feature_cols])
-                        except:
-                            continue
+                            feats = self._get_features_for_model(m_to_calc) # 🔑 路由特征
+                            preds = self.trainers[m_to_calc].predict(valid_tradable[feats])
+                        except: continue
                     else:
                         continue
                         
@@ -217,37 +227,27 @@ class BacktestEngine:
                     for name in self.cfg.MODELS:
                         if name == 'BuyAndHoldAll': continue
 
+                        # 🔑 统一使用路由方法获取特征和预测
+                        feats = self._get_features_for_model(name)
+                        
                         if name == 'DynamicSwitch':
                             selected_model = self.dynamic_current_model
                             if selected_model == 'OptSharpe':
                                 weights = self._calc_opt_sharpe_weights(tradable.index.tolist())
                                 top50 = weights.nlargest(self.cfg.TOP_K).index.tolist()
                             elif selected_model in self.trainers:
-                                if selected_model == 'LightGBM_ablation':
-                                    preds = self.trainers[selected_model].predict(tradable[self.feature_cols_lgbm])
-                                elif selected_model == 'XGBoost_ablation':
-                                    preds = self.trainers[selected_model].predict(tradable[self.feature_cols_xgb])
-                                else:
-                                    preds = self.trainers[selected_model].predict(tradable[self.feature_cols])
+                                sel_feats = self._get_features_for_model(selected_model)
+                                preds = self.trainers[selected_model].predict(tradable[sel_feats])
                                 top50 = pd.Series(preds, index=tradable.index).nlargest(self.cfg.TOP_K).index.tolist()
-                            else:
-                                top50 = []
+                            else: top50 = []
                         elif name == 'OptSharpe':
                             weights = self._calc_opt_sharpe_weights(tradable.index.tolist())
                             top50 = weights.nlargest(self.cfg.TOP_K).index.tolist()
                         else:
                             if name not in self.trainers: continue
                             try:
-                                if name == 'LightGBM':
-                                    preds = self.trainers[name].predict(tradable[self.feature_cols_lgbm])
-                                elif name == 'XGBoost':
-                                    preds = self.trainers[name].predict(tradable[self.feature_cols_xgb])
-                                else:
-                                    preds = self.trainers[name].predict(tradable[self.feature_cols])
-
-                                # 🔑 核心：将预测值缓存，等待 T+i 日结算。此时绝不访问 label_{i}
+                                preds = self.trainers[name].predict(tradable[feats]) # 🔑 使用路由后的特征
                                 self.prediction_cache[date][name] = dict(zip(tradable.index, preds))
-                                
                                 top50 = pd.Series(preds, index=tradable.index).nlargest(self.cfg.TOP_K).index.tolist()
                             except Exception as e:
                                 logger.error(f"❌ {name} 预测失败: {e}")

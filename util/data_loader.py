@@ -19,7 +19,7 @@ def load_panel_data(data_root: str, data_test_root: str, years: List[int], file_
         for y in years:
             path = os.path.join(data_root, f'model_ready_panel_selected_plus_ohlc_{file_prefix}_{y}.parquet')
             if os.path.exists(path):
-                df = pd.read_parquet(path)
+                df = pd.read_parquet(path, engine="pyarrow")
                 df['TRADE_DT'] = pd.to_datetime(df['TRADE_DT'].astype(str), format='%Y%m%d')
                 df['DATA_SOURCE'] = 'train'
                 dfs.append(df)
@@ -32,13 +32,13 @@ def load_panel_data(data_root: str, data_test_root: str, years: List[int], file_
             test_files = [f for f in os.listdir(data_test_root) if f.endswith('.parquet')]
             for f in test_files:
                 path = os.path.join(data_test_root, f)
-                df = pd.read_parquet(path)
+                df = pd.read_parquet(path, engine="pyarrow")
                 df['TRADE_DT'] = pd.to_datetime(df['TRADE_DT'].astype(str), format='%Y%m%d')
                 df['DATA_SOURCE'] = 'test'
                 dfs.append(df)
         else:
             if os.path.exists(data_test_root):
-                df = pd.read_parquet(data_test_root)
+                df = pd.read_parquet(data_test_root, engine="pyarrow")
                 df['TRADE_DT'] = pd.to_datetime(df['TRADE_DT'].astype(str), format='%Y%m%d')
                 df['DATA_SOURCE'] = 'test'
                 dfs.append(df)
@@ -77,7 +77,7 @@ def extract_valid_features(df: pd.DataFrame) -> List[str]:
 
 def compute_real_returns(raw_panel_path: str, panel: pd.DataFrame, i: int) -> pd.DataFrame:
     target = 'S_DQ_ADJCLOSE'
-    raw = pd.read_parquet(raw_panel_path, columns=['S_INFO_WINDCODE', 'TRADE_DT', target])
+    raw = pd.read_parquet(raw_panel_path, columns=['S_INFO_WINDCODE', 'TRADE_DT', target], engine="pyarrow")
     print(f"Loaded target: {target} from {raw_panel_path} | shape: {raw.shape}")
     raw['TRADE_DT'] = pd.to_datetime(raw['TRADE_DT'].astype(str), format='%Y%m%d')
     raw = raw.sort_values(['S_INFO_WINDCODE', 'TRADE_DT'])
