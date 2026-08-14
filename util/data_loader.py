@@ -5,6 +5,7 @@ import pandas as pd
 import numpy as np
 import warnings
 from typing import List, Dict
+import pyarrow.dataset as ds
 
 # 🔑 修改函数签名，增加 exclude_bj 参数
 def load_panel_data(data_root: str, data_test_root: str, years: List[int], file_prefix: str = "train", load_train: bool = True, load_test: bool = True, exclude_bj: bool = False) -> pd.DataFrame:
