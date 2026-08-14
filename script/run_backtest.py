@@ -164,9 +164,13 @@ def main(start_date='2025-01-01'):
     cfg.LOG_DIR.mkdir(parents=True, exist_ok=True)
     
     ablation = cfg.SHAP_ABLATION
-    logging.info(f"🔧 回测引擎已启动 | 样本外测试集起始日: {start_date} |Top K: {cfg.TOP_K} | 消融实验模式: {'启用' if ablation else '禁用'}")
-    logging.info(f"⚙️ 回测配置已调整: WARMUP_DAYS={cfg.WARMUP_DAYS}, REBALANCE_DAYS={cfg.REBALANCE_DAYS}, EXCLUDE_BJ={cfg.EXCLUDE_BJ}")
-
+    # 🔑 修改：打印 REBALANCE_WEEKDAY 配置
+    wd_names = {0: '周一', 1: '周二', 2: '周三', 3: '周四', 4: '周五', None: '禁用(使用天数)'}
+    target_wd_str = wd_names.get(getattr(cfg, 'REBALANCE_WEEKDAY', None), '未知')
+    
+    logging.info(f"🔧 回测引擎已启动 | 样本外测试集起始日: {start_date} | Top K: {cfg.TOP_K} | 消融实验模式: {'启用' if ablation else '禁用'}")
+    logging.info(f"⚙️ 回测配置已调整: WARMUP_DAYS={cfg.WARMUP_DAYS}, REBALANCE_DAYS={cfg.REBALANCE_DAYS}, REBALANCE_WEEKDAY={target_wd_str}")
+    
     if ablation:
         logging.info("🧪 消融实验模式已启用 | 仅使用选定特征进行回测")
 

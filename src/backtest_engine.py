@@ -89,6 +89,26 @@ class BacktestEngine:
         day_cnt = 0
         results = {m: [] for m in self.cfg.MODELS}
         prev_prices = {}
+        # 🔑 新增：计算按周调仓日 (支持节假日自动顺延)
+        rebalance_dates_set = None
+        target_wd = getattr(self.cfg, 'REBALANCE_WEEKDAY', None)
+        if target_wd is not None:
+            dates_series = pd.Series(dates)
+            iso_year = dates_series.dt.isocalendar().year
+            iso_week = dates_series.dt.isocalendar().week
+            weekday = dates_series.dt.weekday
+            
+            df_dates = pd.DataFrame({'date': dates, 'iso_year': iso_year, 'iso_week': iso_week, 'weekday': weekday})
+            # 筛选每周中 weekday >= 目标星期 的交易日，取最小值（即第一个满足条件的交易日）
+            valid_df = df_dates[df_dates['weekday'] >= target_wd]
+            rebalance_dates = valid_df.groupby(['iso_year', 'iso_week'])['date'].min().values
+            rebalance_dates_set = set(rebalance_dates)
+            
+            wd_names = {0: '周一', 1: '周二', 2: '周三', 3: '周四', 4: '周五'}
+            logger.info(f"📅 启用按周调仓 | 目标星期: {wd_names.get(target_wd, target_wd)} | 实际调仓日数量: {len(rebalance_dates_set)}")
+        else:
+            logger.info(f"📅 启用按天数调仓 | 周期: {self.cfg.REBALANCE_DAYS} 天")
+
         logger.info(f"🚀 启动样本外回测 (无未来函数误差结算版) | 交易日: {len(dates)}")
 
         for date in dates:
@@ -163,10 +183,14 @@ class BacktestEngine:
                                 self.dynamic_ic_history[m] = self.dynamic_ic_history[m][-10:]
 
             # 3. 调仓与预测逻辑 (🔑 仅缓存，不计算误差)
-            is_rebalance_day = (day_cnt - self.cfg.WARMUP_DAYS) % self.cfg.REBALANCE_DAYS == 0
+            # 🔑 修改：使用预计算的调仓日集合进行判断
+            if rebalance_dates_set is not None:
+                is_rebalance_day = date in rebalance_dates_set
+            else:
+                is_rebalance_day = (day_cnt - self.cfg.WARMUP_DAYS) % self.cfg.REBALANCE_DAYS == 0
+                
             if is_rebalance_day:
-            # if (day_cnt - self.cfg.WARMUP_DAYS) % self.cfg.REBALANCE_DAYS == 0:
-                            # 🔑 功能二：动态切换逻辑
+                # 🔑 功能二：动态切换逻辑
                 if 'DynamicSwitch' in self.cfg.MODELS:
                     avg_ics = {}
                     for m in self.dynamic_ic_history:
