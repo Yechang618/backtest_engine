@@ -2,20 +2,21 @@
 import sys
 import os
 import json
+import glob
 import logging
 import datetime
 import joblib
 # import torch
 import pandas as pd
 from pathlib import Path
+from typing import Dict, Set
 
 ROOT = Path(__file__).resolve().parents[1]
 print(f"🔧 Backtest Engine Root: {ROOT}")
 sys.path.insert(0, str(ROOT))
 
-# from util.data_loader import load_panel_data, compute_real_returns, extract_valid_features
-from util.data_loader import load_panel_data, compute_real_returns, extract_valid_features, compute_derived_factors # 🔑 新增导入
 
+from util.data_loader import load_panel_data, compute_real_returns, extract_valid_features, compute_derived_factors # 🔑 新增导入
 from src.backtest_engine import BacktestEngine
 from util.metrics import evaluate_and_plot
 from config.Config import Config
@@ -38,42 +39,46 @@ def load_pretrained_models(model_dir: str, feature_cols: list, ablation=False):
             trainers.update(joblib.load(ablation_sklearn_path))
     return trainers
 
+# 🔑 新增：加载股票池数据
+def load_trade_pools(pool_dir: str) -> Dict[str, Set[str]]:
+    """加载 TRADE_POOL_DIR 下的 CSV 文件，解析为 {月份: 股票代码集合} 的字典"""
+    trade_pools = {}
+    if not os.path.exists(pool_dir):
+        logging.warning(f"⚠️ 股票池目录不存在: {pool_dir}")
+        return trade_pools
+        
+    csv_files = glob.glob(os.path.join(pool_dir, "trade_pool_2026*.csv"))
+    if not csv_files:
+        logging.warning(f"⚠️ 未在 {pool_dir} 中找到匹配的股票池 CSV 文件")
+        return trade_pools
+        
+    for f in csv_files:
+        try:
+            df_pool = pd.read_csv(f, usecols=['effective_month', 'code'], dtype={'code': str})
+            for month, group in df_pool.groupby('effective_month'):
+                month_str = str(month).strip()
+                if month_str not in trade_pools:
+                    trade_pools[month_str] = set()
+                codes = set(group['code'].str.strip().tolist())
+                trade_pools[month_str].update(codes)
+        except Exception as e:
+            logging.warning(f"⚠️ 读取股票池文件失败 {f}: {e}")
+            
+    logging.info(f"✅ 成功加载 {len(trade_pools)} 个月的股票池数据 | 月份: {sorted(trade_pools.keys())}")
+    return trade_pools
 
-def plot_daily_ic(daily_ic_results, dynamic_switch_history, figure_dir):
+def plot_daily_ic(daily_ic_results, dynamic_switch_history, figure_dir, start_date='', reba_wd='', file_suffix=''):
     """绘制各模型的每日 Rank IC 随时间变化的曲线 (10日滚动平均)"""
     if not any(daily_ic_results.values()):
         logging.warning("⚠️ 无有效每日 IC 数据，跳过绘图。")
         return
     cfg = Config()
-    start_date = cfg.Date if hasattr(cfg, 'Date') else '20260812'
+    # start_date = cfg.Date if hasattr(cfg, 'Date') else '20260812'
     reba_wd = cfg.REBALANCE_WEEKDAY if hasattr(cfg, 'REBALANCE_WEEKDAY') else 2
 
     # 创建上下两个子图，高度比例为 3:1，共享 X 轴
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(14, 10), gridspec_kw={'height_ratios': [3, 1]}, sharex=True)
     
-    # plt.figure(figsize=(14, 6))
-    
-    # for name, records in daily_ic_results.items():
-    #     if not records: continue
-    #     df_ic = pd.DataFrame(records).set_index('TRADE_DT')
-    #     # 计算 10 日滚动平均以平滑噪音，便于观察趋势
-    #     df_ic['IC_MA10'] = df_ic['IC'].rolling(window=10, min_periods=1).mean()
-    #     plt.plot(df_ic.index, df_ic['IC_MA10'], label=f'{name} (10D MA)', lw=1.5)
-        
-    # plt.title('Daily Cross-Sectional Rank IC (10-Day Moving Average)')
-    # plt.xlabel('Date')
-    # plt.ylabel('Rank IC')
-    # plt.axhline(0, color='black', linestyle='--', lw=0.8, alpha=0.5)
-    # plt.gca().xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m'))
-    # plt.grid(True, alpha=0.3)
-    # plt.legend()
-    # plt.tight_layout()
-    
-    # os.makedirs(figure_dir, exist_ok=True)
-    # path = os.path.join(figure_dir, 'daily_rank_ic_trend.png')
-    # plt.savefig(path, dpi=150)
-    # plt.close()
-    # logging.info(f"✅ 每日 Rank IC 趋势图已保存至: {path}")
     # ─────────────────────────────────────────────────────────────
     # 上图：Rank IC 趋势
     # ─────────────────────────────────────────────────────────────
@@ -127,12 +132,12 @@ def plot_daily_ic(daily_ic_results, dynamic_switch_history, figure_dir):
     
     plt.tight_layout()
     os.makedirs(figure_dir, exist_ok=True)
-    path = os.path.join(figure_dir, f'daily_rank_ic_trend_{start_date}_{reba_wd}.png')
+    path = os.path.join(figure_dir, f'daily_rank_ic_trend_{start_date}_{reba_wd}{file_suffix}.png')
     plt.savefig(path, dpi=150, bbox_inches='tight')
     plt.close()
     logging.info(f"✅ 每日 Rank IC 趋势图 (含动态切换) 已保存至: {path}")
 
-def plot_prediction_error(mse_results, figure_dir, suffix="", start_date='', reba_wd=''):
+def plot_prediction_error(mse_results, figure_dir, suffix="", start_date='', reba_wd='', file_suffix=''):
     cfg = Config()
     """绘制模型预测误差 (MSE) 随时间变化的时序图 (无未来函数版)"""
     if not any(mse_results.values()):
@@ -154,12 +159,12 @@ def plot_prediction_error(mse_results, figure_dir, suffix="", start_date='', reb
     plt.tight_layout()
     
     os.makedirs(figure_dir, exist_ok=True)
-    path = os.path.join(figure_dir, f'pred_top{cfg.TOP_K}_mse{suffix}_{start_date}_{reba_wd}.png')
+    path = os.path.join(figure_dir, f'pred_top{cfg.TOP_K}_mse{suffix}_{start_date}_{reba_wd}{file_suffix}.png')
     plt.savefig(path, dpi=150)
     plt.close()
     logging.info(f"✅ 无未来函数预测误差图已保存至: {path}")
 
-def main(start_date='2025-01-01'):
+def main(start_date='2025-01-01', use_trade_pool=False):
     setup_logging()
     cfg = Config()
     cfg.OUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -167,16 +172,20 @@ def main(start_date='2025-01-01'):
     cfg.LOG_DIR.mkdir(parents=True, exist_ok=True)
     
     ablation = cfg.SHAP_ABLATION
+    # 🔑 新增：文件后缀，用于区分股票池实验
+    file_suffix = '_s' if use_trade_pool else '' 
+
     # 🔑 修改：打印 REBALANCE_WEEKDAY 配置
     wd_names = {0: '周一', 1: '周二', 2: '周三', 3: '周四', 4: '周五', None: '禁用(使用天数)'}
     target_wd_str = wd_names.get(getattr(cfg, 'REBALANCE_WEEKDAY', None), '未知')
-    
-    logging.info(f"🔧 回测引擎已启动 | 样本外测试集起始日: {start_date} | Top K: {cfg.TOP_K} | 消融实验模式: {'启用' if ablation else '禁用'}")
+
+    logging.info(f"🔧 回测引擎已启动 | 起始日: {start_date} | 股票池约束: {'启用' if use_trade_pool else '禁用'}")
     logging.info(f"⚙️ 回测配置已调整: WARMUP_DAYS={cfg.WARMUP_DAYS}, REBALANCE_DAYS={cfg.REBALANCE_DAYS}, REBALANCE_WEEKDAY={target_wd_str}")
     
     if ablation:
         logging.info("🧪 消融实验模式已启用 | 仅使用选定特征进行回测")
 
+    # 1. 加载面板数据
     logging.info("📦 加载面板数据...")
     try:
         # 🔑 修改：传入 exclude_bj=cfg.EXCLUDE_BJ
@@ -204,22 +213,34 @@ def main(start_date='2025-01-01'):
     if ablation and not trainers_ablation:
         raise RuntimeError("未加载到任何消融实验模型，请先运行 script/train_models.py 并启用消融实验")
 
-    # start_date = '2025-01-01'
-    # start_date = '2026-01-01'
-    test_start_date = pd.to_datetime(start_date) if start_date else pd.to_datetime('2025-01-01')
+    # 🔑 2. 加载股票池 (如果启用)
+    trade_pools = None
+    if use_trade_pool:
+        logging.info(f"📦 从 {cfg.TRADE_POOL_DIR} 加载股票池硬约束数据...")
+        trade_pools = load_trade_pools(cfg.TRADE_POOL_DIR)
+        if not trade_pools:
+            logging.error("❌ 股票池数据为空，终止实验！")
+            return
+
+    logging.info("✅ 股票池数据加载完成")
+
+    # 3. 数据隔离
+    test_start_date = pd.to_datetime(start_date)
+    
     df_test = df[df['TRADE_DT'] >= test_start_date].copy()
     logging.info(f"🔒 数据隔离完成 | 样本外测试集形状: {df_test.shape} (起始日: {test_start_date})")
 
+    # 4. 启动回测 (传入 trade_pools)
     if ablation:
         logging.info("🧪 使用消融实验模型进行回测...")
-        engine_ab = BacktestEngine(df_test, cfg, trainers=trainers_ablation, label_col=f'label_{cfg.REBALANCE_DAYS}', ablation=True)
+        engine_ab = BacktestEngine(df_test, cfg, trainers=trainers_ablation, label_col=f'label_{cfg.REBALANCE_DAYS}', ablation=True, trade_pools=trade_pools)
         results_ab = engine_ab.run()
-        plot_prediction_error(engine_ab.mse_results, str(cfg.FIG_DIR), suffix="_ablation", start_date=start_date, reba_wd=cfg.REBALANCE_WEEKDAY)
+        plot_prediction_error(engine_ab.mse_results, str(cfg.FIG_DIR), suffix="_ablation", start_date=start_date, reba_wd=cfg.REBALANCE_WEEKDAY, file_suffix=file_suffix)
 
     logging.info("🚀 使用预训练模型进行回测...")
-    engine = BacktestEngine(df_test, cfg, trainers=trainers, label_col=f'label_{cfg.REBALANCE_DAYS}')
+    engine = BacktestEngine(df_test, cfg, trainers=trainers, label_col=f'label_{cfg.REBALANCE_DAYS}', trade_pools=trade_pools)
     results = engine.run()
-    plot_prediction_error(engine.mse_results, str(cfg.FIG_DIR), suffix="_full", start_date=start_date, reba_wd=cfg.REBALANCE_WEEKDAY)
+    plot_prediction_error(engine.mse_results, str(cfg.FIG_DIR), suffix="_full", start_date=start_date, reba_wd=cfg.REBALANCE_WEEKDAY, file_suffix=file_suffix)
 
     if ablation:
         for name in results_ab.keys():
@@ -229,13 +250,11 @@ def main(start_date='2025-01-01'):
     for name, pf in engine.portfolios.items():
         pf.save_logs(name, str(cfg.LOG_DIR))
 
+    # 5. 生成图表 (传入 suffix)
     logging.info("📊 生成图表...")
-    metrics_summary = evaluate_and_plot(results, str(cfg.OUT_DIR), str(cfg.FIG_DIR), start_date=start_date, reba_wd=cfg.REBALANCE_WEEKDAY, TOP_K=cfg.TOP_K)
-
-    # 🔑 新增：绘制每日 Rank IC 趋势图
-    # plot_daily_ic(engine.daily_ic_results, str(cfg.FIG_DIR))
-    # 🔑 修改：传入 engine.dynamic_switch_history
-    plot_daily_ic(engine.daily_ic_results, getattr(engine, 'dynamic_switch_history', []), str(cfg.FIG_DIR))
+    metrics_summary = evaluate_and_plot(results, str(cfg.OUT_DIR), str(cfg.FIG_DIR), start_date=start_date, reba_wd=cfg.REBALANCE_WEEKDAY, TOP_K=cfg.TOP_K, suffix=file_suffix)
+    
+    plot_daily_ic(engine.daily_ic_results, getattr(engine, 'dynamic_switch_history', []), str(cfg.FIG_DIR), start_date=start_date, reba_wd=cfg.REBALANCE_WEEKDAY, file_suffix=file_suffix)
 
     print("\n" + "="*90)
     print("🏆 回测综合绩效评估 (Out-of-Sample / Test Set)")
@@ -271,8 +290,10 @@ def main(start_date='2025-01-01'):
     logging.info(f"✅ 综合绩效汇总已保存至 JSON: {json_path}")
 
     engine.analyze_shap(str(cfg.FIG_DIR), sample_size=cfg.SHAP_SAMPLE_SIZE)
-    logging.info("✅ 全部流程完成！")
+    logging.info(f"✅ 实验流程完成！(后缀: {file_suffix if file_suffix else '无'})")
+
 
 if __name__ == "__main__":
-    main(start_date='2025-01-01')
-    main(start_date='2026-01-01')  # 可选：运行第二次回测，起始日为 2026-01-01
+    # main(start_date='2025-01-01')
+    # main(start_date='2026-01-01')  # 可选：运行第二次回测，起始日为 2026-01-01
+    main(start_date='2026-01-01', use_trade_pool=True)

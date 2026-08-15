@@ -10,11 +10,13 @@ from .backtest_core import PortfolioManager
 logger = logging.getLogger(__name__)
 
 class BacktestEngine:
-    def __init__(self, df: pd.DataFrame, config, trainers: dict, label_col: str = 'label_1', ablation=False):
+    # 🔑 修改 __init__ 增加 trade_pools 参数
+    def __init__(self, df: pd.DataFrame, config, trainers: dict, label_col: str = 'label_1', ablation=False, trade_pools: dict = None):
         self.df = df[df['FEATURE_MASK'] == 1].copy()
         self.cfg = config
         self.ablation = ablation
-        
+        self.trade_pools = trade_pools  # 🔑 新增：股票池硬约束
+
         # 🔑 根据是否消融，初始化三套特征集
         if self.ablation:
             self.feature_cols_lgbm = config.FEATURE_SELECTED_LGBM
@@ -48,6 +50,10 @@ class BacktestEngine:
         self.dynamic_switch_history = []
 
         self._check_feature_alignment() # 🔑 新增：特征对齐校验
+        
+        if self.trade_pools:
+            logging.info(f"🚫 启用股票池硬约束 | 覆盖月份数: {len(self.trade_pools)}")
+
         logging.info(f"BacktestEngine 初始化完成 (加载预训练模型) | 模型: {list(self.trainers.keys())} | 样本数: {len(self.df)}")
 
     # 🔑 新增：特征路由辅助方法
@@ -152,8 +158,17 @@ class BacktestEngine:
                     results[m].append({'TRADE_DT': date, 'Value': nav})
                 continue
 
-            # 🔑 功能一：计算每日截面 Rank IC
+            # 🔑 核心修改：获取当日可交易股票，并应用股票池硬约束 (对所有模型全局生效)
             tradable = daily[daily.get('BUY_MASK', 1) == 1].copy()
+            if self.trade_pools is not None:
+                current_month_str = date.strftime('%Y%m')
+                allowed_codes = self.trade_pools.get(current_month_str, set())
+                if allowed_codes:
+                    tradable = tradable[tradable.index.isin(allowed_codes)]
+                else:
+                    tradable = pd.DataFrame()  # 当月无股票池数据，强制空仓
+
+            # 🔑 功能一：计算每日截面 Rank IC (使用过滤后的 tradable)
             true_labels = tradable[self.label_col]
             valid_mask = true_labels.notna()
             
@@ -172,8 +187,7 @@ class BacktestEngine:
                             feats = self._get_features_for_model(m_to_calc) # 🔑 路由特征
                             preds = self.trainers[m_to_calc].predict(valid_tradable[feats])
                         except: continue
-                    else:
-                        continue
+                    else: continue
                         
                     preds_series = pd.Series(preds, index=valid_tradable.index)
 
@@ -194,11 +208,13 @@ class BacktestEngine:
 
             # 3. 调仓与预测逻辑 (🔑 仅缓存，不计算误差)
             # 🔑 修改：使用预计算的调仓日集合进行判断
-            if rebalance_dates_set is not None:
-                is_rebalance_day = date in rebalance_dates_set
-            else:
-                is_rebalance_day = (day_cnt - self.cfg.WARMUP_DAYS) % self.cfg.REBALANCE_DAYS == 0
+            # if rebalance_dates_set is not None:
+            #     is_rebalance_day = date in rebalance_dates_set
+            # else:
+            #     is_rebalance_day = (day_cnt - self.cfg.WARMUP_DAYS) % self.cfg.REBALANCE_DAYS == 0
                 
+            is_rebalance_day = date in rebalance_dates_set if rebalance_dates_set else ((day_cnt - self.cfg.WARMUP_DAYS) % self.cfg.REBALANCE_DAYS == 0)
+            
             if is_rebalance_day:
                 # 🔑 功能二：动态切换逻辑
                 if 'DynamicSwitch' in self.cfg.MODELS:
@@ -222,7 +238,7 @@ class BacktestEngine:
                                 logger.info(f"🔄 DynamicSwitch 切换模型: {self.dynamic_current_model} -> {best_model} (Avg IC: {current_ic:.4f} -> {best_ic:.4f})")
                                 self.dynamic_current_model = best_model
 
-                tradable = daily[daily.get('BUY_MASK', 1) == 1].copy()
+                # tradable = daily[daily.get('BUY_MASK', 1) == 1].copy()
                 if not tradable.empty:
                     for name in self.cfg.MODELS:
                         if name == 'BuyAndHoldAll': continue
@@ -253,8 +269,12 @@ class BacktestEngine:
                                 logger.error(f"❌ {name} 预测失败: {e}")
                                 top50 = []
                                 
-                        if len(top50) == 0:
-                            logger.warning(f"⚠️ {date.strftime('%Y-%m-%d')} | {name} 未生成有效 Top50 标的")
+                        if len(top50) == 0 and name != 'BuyAndHoldAll':
+                            if self.trade_pools is not None and not tradable.empty:
+                                logger.info(f"ℹ️ {date.strftime('%Y-%m-%d')} | {name} 股票池内无有效标的，空仓")
+                            else:
+                                logger.warning(f"⚠️ {date.strftime('%Y-%m-%d')} | {name} 未生成有效标的")
+                                
                         self.portfolios[name].rebalance(date, top50, price_dict)
 
             # 4. 每日净值计算

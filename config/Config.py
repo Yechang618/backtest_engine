@@ -10,6 +10,10 @@ class Config:
     RAW_PANEL = f"{DATA_RAW_ROOT}/market_base_with_industry_20150101_{Date}.parquet"
     DATA_TEST_DIR = f"{DATA_ROOT}/model_ready_panel_selected_fin_ind_pv_adj_masks_rebuild_20150105_{Date}.parquet"
     DATA_DIR = DATA_TEST_DIR
+
+    # 🔑 新增：股票池目录路径 (注意去除可能存在的末尾空格)
+    TRADE_POOL_DIR = f"{DATA_RAW_ROOT}/riva_cn_tech_trade_pools_202601_202608".strip()
+    # TRADE_POOL_DIR = f"{DATA_RAW_ROOT}/riva_cn_tech_trade_pools_202601_202608"
     
     # 📂 工程路径 (可写)
     ROOT = Path(__file__).resolve().parents[1]
@@ -28,7 +32,7 @@ class Config:
     REBALANCE_DAYS = 5
     # 🔑 新增：指定每周调仓的星期几 (0=周一, 1=周二, 2=周三, 3=周四, 4=周五)。
     # 若设为 None，则回退使用 REBALANCE_DAYS 的固定天数逻辑。
-    REBALANCE_WEEKDAY = 2   # 默认设为 2 (周三)
+    REBALANCE_WEEKDAY = 4 
     
     TOP_K          = 25
     INITIAL_CAPITAL = 10_000_000.0

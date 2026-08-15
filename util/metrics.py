@@ -13,7 +13,15 @@ def compute_rolling_sharpe(values: pd.Series, window: int = 30) -> pd.Series:
     rolling_std = daily_ret.rolling(window).std()
     sharpe = (rolling_mean / (rolling_std + 1e-8)) * np.sqrt(252)
     return sharpe
-def evaluate_and_plot(results: Dict[str, pd.DataFrame], output_dir: str, figure_dir: str, ic_ir_dict: Optional[Dict] = None, start_date='', reba_wd = '', TOP_K=50):
+def evaluate_and_plot(results: Dict[str, pd.DataFrame], 
+                      output_dir: str, 
+                      figure_dir: str, 
+                      ic_ir_dict: Optional[Dict] = None, 
+                      start_date='', 
+                      TOP_K=50, 
+                      reba_wd='', 
+                      suffix=''):
+
     os.makedirs(output_dir, exist_ok=True)
     os.makedirs(figure_dir, exist_ok=True)
     
@@ -83,7 +91,7 @@ def evaluate_and_plot(results: Dict[str, pd.DataFrame], output_dir: str, figure_
     plt.grid(True, alpha=0.3)
     plt.legend()
     plt.tight_layout()
-    plt.savefig(os.path.join(figure_dir, f'pnl_combined_top{TOP_K}_{start_date}_{reba_wd}.png'), dpi=150)
+    plt.savefig(os.path.join(figure_dir, f'pnl_combined_top{TOP_K}_{start_date}_{reba_wd}{suffix}.png'), dpi=150)
     plt.close()
     
     # ... (后续 Drawdown 和 Rolling Sharpe 的绘图逻辑同样将 df 替换为 df_test 即可，此处省略以保持简洁，您只需在原代码对应位置将 df 改为 df_test)
@@ -100,7 +108,7 @@ def evaluate_and_plot(results: Dict[str, pd.DataFrame], output_dir: str, figure_
     plt.grid(True, alpha=0.3)
     plt.legend()
     plt.tight_layout()
-    plt.savefig(os.path.join(figure_dir, f'drawdown_combined_top{TOP_K}_{start_date}_{reba_wd}.png'), dpi=150)
+    plt.savefig(os.path.join(figure_dir, f'drawdown_combined_top{TOP_K}_{start_date}_{reba_wd}{suffix}.png'), dpi=150)
     plt.close()
 
     # ─────────────────────────────────────────────────────────────
@@ -121,7 +129,7 @@ def evaluate_and_plot(results: Dict[str, pd.DataFrame], output_dir: str, figure_
     plt.grid(True, alpha=0.3)
     plt.legend()
     plt.tight_layout()
-    plt.savefig(os.path.join(figure_dir, f'rolling_sharpe_combined_top{TOP_K}_{start_date}_{reba_wd}.png'), dpi=150)
+    plt.savefig(os.path.join(figure_dir, f'rolling_sharpe_combined_top{TOP_K}_{start_date}_{reba_wd}{suffix}.png'), dpi=150)
     plt.close()
 
     # ─────────────────────────────────────────────────────────────
