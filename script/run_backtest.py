@@ -44,6 +44,9 @@ def plot_daily_ic(daily_ic_results, dynamic_switch_history, figure_dir):
     if not any(daily_ic_results.values()):
         logging.warning("⚠️ 无有效每日 IC 数据，跳过绘图。")
         return
+    cfg = Config()
+    start_date = cfg.Date if hasattr(cfg, 'Date') else '20260812'
+    reba_wd = cfg.REBALANCE_WEEKDAY if hasattr(cfg, 'REBALANCE_WEEKDAY') else 2
 
     # 创建上下两个子图，高度比例为 3:1，共享 X 轴
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(14, 10), gridspec_kw={'height_ratios': [3, 1]}, sharex=True)
@@ -124,12 +127,12 @@ def plot_daily_ic(daily_ic_results, dynamic_switch_history, figure_dir):
     
     plt.tight_layout()
     os.makedirs(figure_dir, exist_ok=True)
-    path = os.path.join(figure_dir, 'daily_rank_ic_trend.png')
+    path = os.path.join(figure_dir, f'daily_rank_ic_trend_{start_date}_{reba_wd}.png')
     plt.savefig(path, dpi=150, bbox_inches='tight')
     plt.close()
     logging.info(f"✅ 每日 Rank IC 趋势图 (含动态切换) 已保存至: {path}")
 
-def plot_prediction_error(mse_results, figure_dir, suffix="", start_date=''):
+def plot_prediction_error(mse_results, figure_dir, suffix="", start_date='', reba_wd=''):
     cfg = Config()
     """绘制模型预测误差 (MSE) 随时间变化的时序图 (无未来函数版)"""
     if not any(mse_results.values()):
@@ -151,7 +154,7 @@ def plot_prediction_error(mse_results, figure_dir, suffix="", start_date=''):
     plt.tight_layout()
     
     os.makedirs(figure_dir, exist_ok=True)
-    path = os.path.join(figure_dir, f'pred_top{cfg.TOP_K}_mse{suffix}_{start_date}.png')
+    path = os.path.join(figure_dir, f'pred_top{cfg.TOP_K}_mse{suffix}_{start_date}_{reba_wd}.png')
     plt.savefig(path, dpi=150)
     plt.close()
     logging.info(f"✅ 无未来函数预测误差图已保存至: {path}")
@@ -180,7 +183,7 @@ def main(start_date='2025-01-01'):
         df = load_panel_data(None, cfg.DATA_TEST_DIR, [], load_train=False, load_test=True, exclude_bj=cfg.EXCLUDE_BJ)
     except TypeError:
         # 🔑 修改：传入 exclude_bj=cfg.EXCLUDE_BJ
-        df = load_panel_data(cfg.DATA_DIR, cfg.DATA_TEST_DIR, list(range(2016, 2027)), file_prefix="train", exclude_bj=cfg.EXCLUDE_BJ)
+        df = load_panel_data(cfg.DATA_DIR, cfg.DATA_TEST_DIR, list(range(2022, 2027)), file_prefix="train", exclude_bj=cfg.EXCLUDE_BJ)
         
     df = compute_real_returns(cfg.RAW_PANEL, df, i=cfg.REBALANCE_DAYS)
 
@@ -211,12 +214,12 @@ def main(start_date='2025-01-01'):
         logging.info("🧪 使用消融实验模型进行回测...")
         engine_ab = BacktestEngine(df_test, cfg, trainers=trainers_ablation, label_col=f'label_{cfg.REBALANCE_DAYS}', ablation=True)
         results_ab = engine_ab.run()
-        plot_prediction_error(engine_ab.mse_results, str(cfg.FIG_DIR), suffix="_ablation", start_date=start_date)
+        plot_prediction_error(engine_ab.mse_results, str(cfg.FIG_DIR), suffix="_ablation", start_date=start_date, reba_wd=cfg.REBALANCE_WEEKDAY)
 
     logging.info("🚀 使用预训练模型进行回测...")
     engine = BacktestEngine(df_test, cfg, trainers=trainers, label_col=f'label_{cfg.REBALANCE_DAYS}')
     results = engine.run()
-    plot_prediction_error(engine.mse_results, str(cfg.FIG_DIR), suffix="_full", start_date=start_date)
+    plot_prediction_error(engine.mse_results, str(cfg.FIG_DIR), suffix="_full", start_date=start_date, reba_wd=cfg.REBALANCE_WEEKDAY)
 
     if ablation:
         for name in results_ab.keys():
@@ -227,7 +230,7 @@ def main(start_date='2025-01-01'):
         pf.save_logs(name, str(cfg.LOG_DIR))
 
     logging.info("📊 生成图表...")
-    metrics_summary = evaluate_and_plot(results, str(cfg.OUT_DIR), str(cfg.FIG_DIR), start_date=start_date, TOP_K=cfg.TOP_K)
+    metrics_summary = evaluate_and_plot(results, str(cfg.OUT_DIR), str(cfg.FIG_DIR), start_date=start_date, reba_wd=cfg.REBALANCE_WEEKDAY, TOP_K=cfg.TOP_K)
 
     # 🔑 新增：绘制每日 Rank IC 趋势图
     # plot_daily_ic(engine.daily_ic_results, str(cfg.FIG_DIR))
