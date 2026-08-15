@@ -47,7 +47,8 @@ class Config:
     ]    
 
     # 🔄 动态切换策略配置 (包含所有细分模型及其消融版本)
-    DYNAMIC_SWITCH_INIT_MODEL = 'OptSharpe'  
+    # DYNAMIC_SWITCH_INIT_MODEL = 'OptSharpe'
+    DYNAMIC_SWITCH_INIT_MODEL =  'LGBM-24'
     DYNAMIC_SWITCH_BASE_MODELS = [
         'ElasticNet', 'OptSharpe', 
         'XGB-22', 'XGB-23', 'XGB-24', 
