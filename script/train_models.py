@@ -73,8 +73,8 @@ def main():
     # 构建训练任务列表: (模型名, 模型类型, 特征集, 时间切片)
     tasks = []
     for suffix, dates in splits.items():
-        tasks.append((f'XGB-{suffix}', 'xgb', cfg.FEATURE_SELECTED_XGB, dates))
-        tasks.append((f'LGBM-{suffix}', 'lgbm', cfg.FEATURE_SELECTED_LGBM, dates))
+        tasks.append((f'XGB-{suffix}', 'xgb', cfg.FEATURE_COLS, dates))
+        tasks.append((f'LGBM-{suffix}', 'lgbm', cfg.FEATURE_COLS, dates))
 
     # ==========================================
     # 1. 训练全量特征模型

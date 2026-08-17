@@ -34,6 +34,14 @@ class BacktestEngine:
         self.trainers = trainers
         self._baseline_init = False
 
+        # 🔑 新增：用于计算 Residual 的历史价格缓存
+        self.adjclose_history = defaultdict(list)
+        
+        # 🔑 新增：SensitiveSwitch 状态与 Residual 缓存
+        self.residual_cache = {}  # {model_name: pd.Series}
+        self.sensitive_current_model = getattr(config, 'SENSITIVE_SWITCH_INIT_MODEL', 'LGBM-24')
+        self.sensitive_switch_ic_history = {m: [] for m in getattr(config, 'SENSITIVE_SWITCH_BASE_MODELS', [])}
+
         # 🔑 功能一：每日 Rank IC 记录
         self.daily_ic_results = {m: [] for m in self.cfg.MODELS}
         
@@ -71,9 +79,14 @@ class BacktestEngine:
             if hasattr(model, 'feature_names_in_'):
                 target_feats = self._get_features_for_model(name)
                 trained_features = list(model.feature_names_in_)
+                print(f"🔍 {name} 训练特征数: {len(trained_features)} | 测试特征数: {len(target_feats)}")
                 
                 if set(trained_features) != set(target_feats):
                     aligned_feats = [c for c in trained_features if c in target_feats]
+                    print(f"⚠️ {name} 特征不匹配 | 训练特征数: {len(trained_features)} | 测试特征数: {len(target_feats)} | 对齐后特征数: {len(aligned_feats)}")
+                    # print(f"训练特征: {trained_features}")
+                    # print(f"测试特征: {target_feats}")
+                    # print(f"对齐后特征: {aligned_feats}")
                     logger.warning(f"⚠️ {name} 特征不匹配，已自动对齐至 {len(aligned_feats)} 个")
                     
                     if 'XGB' in name:
@@ -102,6 +115,112 @@ class BacktestEngine:
         full_scores[eligible] = weights
         return full_scores
 
+    # 🔑 新增：Residual 计算核心模块
+    def _compute_style_and_industry(self, daily_df: pd.DataFrame):
+        """计算 6 个风格变量和行业哑变量，支持智能 Fallback"""
+        style_data = {}
+        
+        # 1. log_mcap (市值)
+        if 'S_DQ_CAPITAL' in daily_df.columns and 'S_DQ_CLOSE' in daily_df.columns:
+            style_data['log_mcap'] = np.log1p(daily_df['S_DQ_CLOSE'] * daily_df['S_DQ_CAPITAL'] / 10000)
+        elif 'PV_CAPITAL_LOG_MKT_Z' in daily_df.columns:
+            style_data['log_mcap'] = daily_df['PV_CAPITAL_LOG_MKT_Z']  # Fallback: 使用已标准化的 log_mcap
+        else:
+            style_data['log_mcap'] = np.nan
+            
+        # 2. turnover_proxy (换手率代理)
+        if 'S_DQ_VOLUME' in daily_df.columns and 'S_DQ_CAPITAL' in daily_df.columns:
+            style_data['turnover'] = daily_df['S_DQ_VOLUME'] / daily_df['S_DQ_CAPITAL']
+        elif 'S_DQ_VOLUME' in daily_df.columns:
+            style_data['turnover'] = daily_df['S_DQ_VOLUME']  # Fallback
+        elif 'TURNOVER_SHARE_OF_MARKET_MKT_Z' in daily_df.columns:
+            style_data['turnover'] = daily_df['TURNOVER_SHARE_OF_MARKET_MKT_Z']  # Fallback
+        else:
+            style_data['turnover'] = np.nan
+
+        # 3 & 4. vol20, vol60, mom20, mom60 (从 adjclose_history 计算)
+        mom20_list, mom60_list, vol20_list, vol60_list = [], [], [], []
+        for code in daily_df.index:
+            hist = self.adjclose_history.get(code, [])
+            if len(hist) >= 20:
+                prices = np.array(hist)
+                rets = np.diff(prices) / prices[:-1]
+                mom20_list.append(prices[-1] / prices[-20] - 1)
+                vol20_list.append(np.std(rets[-20:], ddof=0) if len(rets) >= 10 else np.nan)
+            else:
+                mom20_list.append(np.nan)
+                vol20_list.append(np.nan)
+                
+            if len(hist) >= 60:
+                mom60_list.append(prices[-1] / prices[-60] - 1)
+                vol60_list.append(np.std(rets[-60:], ddof=0) if len(rets) >= 20 else np.nan)
+            else:
+                mom60_list.append(np.nan)
+                vol60_list.append(np.nan)
+                
+        style_data['mom20'] = mom20_list
+        style_data['mom60'] = mom60_list
+        style_data['vol20'] = vol20_list
+        style_data['vol60'] = vol60_list
+        
+        style_df = pd.DataFrame(style_data, index=daily_df.index)
+        
+        # 5. 行业变量
+        if 'SW_L1_NAME' in daily_df.columns:
+            industry_col = daily_df['SW_L1_NAME']
+        elif 'SW_L1_CODE' in daily_df.columns:
+            industry_col = daily_df['SW_L1_CODE']
+        else:
+            industry_col = pd.Series('missing', index=daily_df.index)
+            
+        return style_df, industry_col
+
+    def _compute_residuals(self, preds: pd.Series, style_df: pd.DataFrame, industry_col: pd.Series) -> pd.Series:
+        """OLS 回归计算 Residual 分数，缺失值填充 -1e6"""
+        df = pd.concat([preds.rename('pred'), style_df, industry_col.rename('ind')], axis=1).dropna()
+        
+        # 条件 1: 有效样本少于 100 不回归
+        if len(df) < 100:
+            return pd.Series(-1e6, index=preds.index)
+            
+        # Z-score 风格变量 (ddof=0)
+        style_cols = ['log_mcap', 'turnover', 'vol20', 'vol60', 'mom20', 'mom60']
+        for col in style_cols:
+            std = df[col].std(ddof=0)
+            if std > 1e-8:
+                df[col] = (df[col] - df[col].mean()) / std
+            else:
+                df[col] = 0.0
+                
+        # 行业哑变量 (drop_first=True 去掉基准行业)
+        df['ind'] = df['ind'].fillna('missing').astype(str)
+        dummies = pd.get_dummies(df['ind'], drop_first=True, dtype=float)
+        
+        X = pd.concat([df[style_cols], dummies], axis=1).values
+        y = df['pred'].values
+        
+        # 条件 2: 设计矩阵列数 >= 样本数 - 5 不回归
+        if X.shape[1] >= len(df) - 5:
+            return pd.Series(-1e6, index=preds.index)
+            
+        # 添加截距项
+        X = np.column_stack([np.ones(len(X)), X])
+        
+        try:
+            # 手动 OLS: beta = (X'X)^-1 X'y (加入微小正则化防止奇异)
+            XtX = X.T @ X
+            Xty = X.T @ y
+            beta = np.linalg.solve(XtX + 1e-8 * np.eye(XtX.shape[0]), Xty)
+            resid = y - X @ beta
+            
+            # 映射回原始 index，缺失填 -1e6
+            full_resid = pd.Series(-1e6, index=preds.index)
+            full_resid.loc[df.index] = resid
+            return full_resid
+        except Exception as e:
+            logger.warning(f"⚠️ OLS 回归失败: {e}")
+            return pd.Series(-1e6, index=preds.index)
+        
     def run(self) -> Dict[str, pd.DataFrame]:
         grouped = self.df.groupby('TRADE_DT')
         dates = sorted(grouped.groups.keys())
@@ -136,7 +255,7 @@ class BacktestEngine:
             price_dict = daily[Target].to_dict()
             day_cnt += 1
 
-            # 1. 更新收益历史 (用于 OptSharpe)
+             # 1. 更新收益历史 & 🔑 更新 adjclose_history (用于 Residual)
             for code in daily.index:
                 price = price_dict[code]
                 daily_ret = (price - prev_prices[code]) / prev_prices[code] if code in prev_prices and prev_prices[code] > 1e-6 else 0.0
@@ -144,6 +263,10 @@ class BacktestEngine:
                 if len(self.returns_history[code]) > 80:
                     self.returns_history[code] = self.returns_history[code][-80:]
                 prev_prices[code] = price
+
+                self.adjclose_history[code].append(price)
+                if len(self.adjclose_history[code]) > 65:
+                    self.adjclose_history[code] = self.adjclose_history[code][-65:]
 
             # 2. 基线策略初始化
             if 'BuyAndHoldAll' in self.cfg.MODELS and not self._baseline_init:
@@ -171,7 +294,39 @@ class BacktestEngine:
             # 🔑 功能一：计算每日截面 Rank IC (使用过滤后的 tradable)
             true_labels = tradable[self.label_col]
             valid_mask = true_labels.notna()
-            
+
+            if not tradable.empty:
+                style_df, industry_col = self._compute_style_and_industry(tradable)
+                true_labels = tradable[self.label_col]
+                valid_mask = true_labels.notna()
+                
+                # 计算所有基础模型的 Residual
+                base_models = set(getattr(self.cfg, 'SENSITIVE_SWITCH_BASE_MODELS', []) + 
+                                  getattr(self.cfg, 'DYNAMIC_SWITCH_BASE_MODELS', []))
+                
+                for m in base_models:
+                    if m not in self.trainers: continue
+                    try:
+                        feats = self._get_features_for_model(m)
+                        preds_raw = pd.Series(self.trainers[m].predict(tradable[feats]), index=tradable.index)
+                        resid = self._compute_residuals(preds_raw, style_df, industry_col)
+                        self.residual_cache[m] = resid
+                        
+                        # 计算 Residual Rank IC (用于 SensitiveSwitch 路由)
+                        if valid_mask.sum() > 30:
+                            valid_resid = resid[valid_mask]
+                            # 排除 -1e6 的无效残差
+                            valid_resid = valid_resid[valid_resid > -1e5]
+                            if len(valid_resid) > 30:
+                                ic = true_labels.loc[valid_resid.index].corr(valid_resid, method='spearman')
+                                if not np.isnan(ic):
+                                    if m in self.sensitive_switch_ic_history:
+                                        self.sensitive_switch_ic_history[m].append(ic)
+                                        if len(self.sensitive_switch_ic_history[m]) > 10:
+                                            self.sensitive_switch_ic_history[m] = self.sensitive_switch_ic_history[m][-10:]
+                    except Exception as e:
+                        logger.error(f"❌ {m} Residual 计算失败: {e}")
+
             if valid_mask.sum() > 30:  # 至少需要30只股票才能计算有效的截面IC
                 valid_tradable = tradable[valid_mask]
                 valid_true_labels = true_labels[valid_mask]
@@ -238,6 +393,18 @@ class BacktestEngine:
                                 logger.info(f"🔄 DynamicSwitch 切换模型: {self.dynamic_current_model} -> {best_model} (Avg IC: {current_ic:.4f} -> {best_ic:.4f})")
                                 self.dynamic_current_model = best_model
 
+                # 🔑 SensitiveSwitch 路由 (基于 Residual Rank IC)
+                if 'SensitiveSwitch' in self.cfg.MODELS:
+                    avg_ics = {}
+                    for m in self.sensitive_switch_ic_history:
+                        if len(self.sensitive_switch_ic_history[m]) >= 5:  # 至少需要 5 天数据
+                            avg_ics[m] = np.mean(self.sensitive_switch_ic_history[m])
+                    if avg_ics:
+                        best_model = max(avg_ics, key=avg_ics.get)
+                        if best_model != self.sensitive_current_model:
+                            logger.info(f"🔄 SensitiveSwitch 切换模型: {self.sensitive_current_model} -> {best_model} (Avg Resid IC: {avg_ics.get(self.sensitive_current_model, 0):.4f} -> {avg_ics[best_model]:.4f})")
+                            self.sensitive_current_model = best_model
+
                 # tradable = daily[daily.get('BUY_MASK', 1) == 1].copy()
                 if not tradable.empty:
                     for name in self.cfg.MODELS:
@@ -256,6 +423,29 @@ class BacktestEngine:
                                 preds = self.trainers[selected_model].predict(tradable[sel_feats])
                                 top50 = pd.Series(preds, index=tradable.index).nlargest(self.cfg.TOP_K).index.tolist()
                             else: top50 = []
+                            
+                        # 🔑 核心修复：SensitiveSwitch 专属调仓逻辑
+                        elif name == 'SensitiveSwitch':
+                            selected_model = self.sensitive_current_model
+                            if selected_model == 'OptSharpe':
+                                weights = self._calc_opt_sharpe_weights(tradable.index.tolist())
+                                top50 = weights.nlargest(self.cfg.TOP_K).index.tolist()
+                            elif selected_model in self.trainers:
+                                # 使用 Residual 分数进行排序
+                                resid_scores = self.residual_cache.get(selected_model)
+                                if resid_scores is not None and not resid_scores.empty:
+                                    # 过滤掉 -1e6 的无效残差，只取有效分数最高的 Top K
+                                    valid_resid = resid_scores[resid_scores > -1e5]
+                                    if len(valid_resid) >= self.cfg.TOP_K:
+                                        top50 = valid_resid.nlargest(self.cfg.TOP_K).index.tolist()
+                                    else:
+                                        # 如果有效分数不足 Top K，则用原始分数补齐
+                                        top50 = resid_scores.nlargest(self.cfg.TOP_K).index.tolist()
+                                else:
+                                    top50 = []
+                            else:
+                                top50 = []
+
                         elif name == 'OptSharpe':
                             weights = self._calc_opt_sharpe_weights(tradable.index.tolist())
                             top50 = weights.nlargest(self.cfg.TOP_K).index.tolist()
