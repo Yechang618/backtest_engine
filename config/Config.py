@@ -32,7 +32,7 @@ class Config:
     REBALANCE_DAYS = 5
     # 🔑 新增：指定每周调仓的星期几 (0=周一, 1=周二, 2=周三, 3=周四, 4=周五)。
     # 若设为 None，则回退使用 REBALANCE_DAYS 的固定天数逻辑。
-    REBALANCE_WEEKDAY = 4 
+    REBALANCE_WEEKDAY = 0 
     
     TOP_K          = 25
     INITIAL_CAPITAL = 10_000_000.0
@@ -47,7 +47,8 @@ class Config:
         'ElasticNet', 
         'XGB-22', 'XGB-23', 'XGB-24', 
         'LGBM-22', 'LGBM-23', 'LGBM-24', 
-        'OptSharpe', 'DynamicSwitch', 'BuyAndHoldAll'
+        'OptSharpe', 'DynamicSwitch', 'SensitiveSwitch', 
+        'BuyAndHoldAll'
     ]    
 
     # 🔄 动态切换策略配置 (包含所有细分模型及其消融版本)
@@ -57,10 +58,22 @@ class Config:
         'ElasticNet', 'OptSharpe', 
         'XGB-22', 'XGB-23', 'XGB-24', 
         'LGBM-22', 'LGBM-23', 'LGBM-24',
-        'XGB-22_ablation', 'XGB-23_ablation', 'XGB-24_ablation',
-        'LGBM-22_ablation', 'LGBM-23_ablation', 'LGBM-24_ablation'
+        # 'XGB-22_ablation', 'XGB-23_ablation', 'XGB-24_ablation',
+        # 'LGBM-22_ablation', 'LGBM-23_ablation', 'LGBM-24_ablation'
     ]  
     DYNAMIC_SWITCH_B = 1.00  
+
+
+    # 🔑 新增：SensitiveSwitch (基于 Residual 分数) 路由配置
+    SENSITIVE_SWITCH_INIT_MODEL = 'LGBM-24'
+    SENSITIVE_SWITCH_BASE_MODELS = [
+        'ElasticNet', 'OptSharpe', 
+        'XGB-22', 'XGB-23', 'XGB-24', 
+        'LGBM-22', 'LGBM-23', 'LGBM-24',
+        # 'XGB-22_ablation', 'XGB-23_ablation', 'XGB-24_ablation',
+        # 'LGBM-22_ablation', 'LGBM-23_ablation', 'LGBM-24_ablation'
+    ]  
+    SENSITIVE_SWITCH_THRESHOLD = 1.0  # Residual 分数阈值
 
     # 🔍 SHAP 分析配置
     SHAP_SAMPLE_SIZE = 500
