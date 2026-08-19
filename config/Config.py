@@ -32,7 +32,7 @@ class Config:
     REBALANCE_DAYS = 5
     # 🔑 新增：指定每周调仓的星期几 (0=周一, 1=周二, 2=周三, 3=周四, 4=周五)。
     # 若设为 None，则回退使用 REBALANCE_DAYS 的固定天数逻辑。
-    REBALANCE_WEEKDAY = 0 
+    REBALANCE_WEEKDAY = 4
     
     TOP_K          = 25
     INITIAL_CAPITAL = 10_000_000.0

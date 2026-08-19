@@ -137,6 +137,72 @@ def plot_daily_ic(daily_ic_results, dynamic_switch_history, figure_dir, start_da
     plt.close()
     logging.info(f"✅ 每日 Rank IC 趋势图 (含动态切换) 已保存至: {path}")
 
+
+def plot_daily_resIc(daily_resid_ic_results, sensitive_switch_history, figure_dir, start_date='', reba_wd='', file_suffix=''):
+    """绘制各模型的每日 Residual Rank IC 随时间变化的曲线，并附带 SensitiveSwitch 的切换记录"""
+    if not any(daily_resid_ic_results.values()):
+        logging.warning("⚠️ 无有效每日 Residual IC 数据，跳过绘图。")
+        return
+        
+    cfg = Config()
+    reba_wd = cfg.REBALANCE_WEEKDAY if hasattr(cfg, 'REBALANCE_WEEKDAY') else 2
+    
+    # 创建上下两个子图，高度比例为 3:1，共享 X 轴
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(14, 10), gridspec_kw={'height_ratios': [3, 1]}, sharex=True)
+    
+    # ─────────────────────────────────────────────────────────────
+    # 上图：Residual Rank IC 趋势
+    # ─────────────────────────────────────────────────────────────
+    for name, records in daily_resid_ic_results.items():
+        if not records: continue
+        df_ic = pd.DataFrame(records).set_index('TRADE_DT')
+        df_ic['IC_MA10'] = df_ic['IC'].rolling(window=10, min_periods=1).mean()
+        ax1.plot(df_ic.index, df_ic['IC_MA10'], label=f'{name} (10D MA)', lw=1.5)
+        
+    ax1.set_title('Daily Cross-Sectional Residual Rank IC (10-Day Moving Average)', fontsize=14)
+    ax1.set_ylabel('Residual Rank IC', fontsize=12)
+    ax1.axhline(0, color='black', linestyle='--', lw=0.8, alpha=0.5)
+    ax1.grid(True, alpha=0.3)
+    ax1.legend(loc='upper left')
+    
+    # ─────────────────────────────────────────────────────────────
+    # 下图：SensitiveSwitch 模型切换历史 (阶梯图)
+    # ─────────────────────────────────────────────────────────────
+    if sensitive_switch_history:
+        df_switch = pd.DataFrame(sensitive_switch_history).set_index('TRADE_DT')
+        unique_models = sorted(list(df_switch['Model'].unique()))
+        model_to_int = {m: i for i, m in enumerate(unique_models)}
+        df_switch['Model_Int'] = df_switch['Model'].map(model_to_int)
+        
+        # 🔑 使用深橙色以区分 DynamicSwitch 的紫色
+        ax2.step(df_switch.index, df_switch['Model_Int'], where='post', color='darkorange', lw=2.5, alpha=0.8)
+        
+        ax2.set_yticks(list(model_to_int.values()))
+        ax2.set_yticklabels(list(model_to_int.keys()), fontsize=11)
+        ax2.set_ylabel('SensitiveSwitch\nActive Model', fontsize=12)
+        ax2.grid(True, alpha=0.3, axis='y')
+        
+        for i, model in enumerate(unique_models):
+            ax2.axhspan(i - 0.4, i + 0.4, color=plt.cm.tab10(i % 10), alpha=0.15, zorder=0)
+    else:
+        ax2.text(0.5, 0.5, 'No SensitiveSwitch History', ha='center', va='center', transform=ax2.transAxes, fontsize=12, color='gray')
+        ax2.set_yticks([])
+        
+    # ─────────────────────────────────────────────────────────────
+    # 全局 X 轴格式化
+    # ─────────────────────────────────────────────────────────────
+    ax2.set_xlabel('Date', fontsize=12)
+    plt.gca().xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m'))
+    plt.xticks(rotation=45, ha='right')
+    plt.tight_layout()
+    
+    os.makedirs(figure_dir, exist_ok=True)
+    path = os.path.join(figure_dir, f'daily_resid_ic_trend_{start_date}_{reba_wd}{file_suffix}.png')
+    plt.savefig(path, dpi=150, bbox_inches='tight')
+    plt.close()
+    logging.info(f"✅ 每日 Residual Rank IC 趋势图 (含 SensitiveSwitch) 已保存至: {path}")
+
+
 def plot_prediction_error(mse_results, figure_dir, suffix="", start_date='', reba_wd='', file_suffix=''):
     cfg = Config()
     """绘制模型预测误差 (MSE) 随时间变化的时序图 (无未来函数版)"""
@@ -173,7 +239,7 @@ def main(start_date='2025-01-01', use_trade_pool=False):
     
     ablation = cfg.SHAP_ABLATION
     # 🔑 新增：文件后缀，用于区分股票池实验
-    file_suffix = '_s' if use_trade_pool else '' 
+    file_suffix = '_st' if use_trade_pool else '' 
 
     # 🔑 修改：打印 REBALANCE_WEEKDAY 配置
     wd_names = {0: '周一', 1: '周二', 2: '周三', 3: '周四', 4: '周五', None: '禁用(使用天数)'}
@@ -256,6 +322,16 @@ def main(start_date='2025-01-01', use_trade_pool=False):
     
     plot_daily_ic(engine.daily_ic_results, getattr(engine, 'dynamic_switch_history', []), str(cfg.FIG_DIR), start_date=start_date, reba_wd=cfg.REBALANCE_WEEKDAY, file_suffix=file_suffix)
 
+    # 🔑 新增：Residual IC 绘图
+    plot_daily_resIc(
+        getattr(engine, 'daily_resid_ic_results', {}), 
+        getattr(engine, 'sensitive_switch_history', []), 
+        str(cfg.FIG_DIR), 
+        start_date=start_date, 
+        reba_wd=cfg.REBALANCE_WEEKDAY, 
+        file_suffix=file_suffix
+    )
+    
     print("\n" + "="*90)
     print("🏆 回测综合绩效评估 (Out-of-Sample / Test Set)")
     print("="*90)

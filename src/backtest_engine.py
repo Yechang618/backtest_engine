@@ -42,6 +42,10 @@ class BacktestEngine:
         self.sensitive_current_model = getattr(config, 'SENSITIVE_SWITCH_INIT_MODEL', 'LGBM-24')
         self.sensitive_switch_ic_history = {m: [] for m in getattr(config, 'SENSITIVE_SWITCH_BASE_MODELS', [])}
 
+        # 🔑 新增：用于绘制 Residual IC 和 SensitiveSwitch 历史的数据结构
+        self.daily_resid_ic_results = {}
+        self.sensitive_switch_history = []
+
         # 🔑 功能一：每日 Rank IC 记录
         self.daily_ic_results = {m: [] for m in self.cfg.MODELS}
         
@@ -265,8 +269,8 @@ class BacktestEngine:
                 prev_prices[code] = price
 
                 self.adjclose_history[code].append(price)
-                if len(self.adjclose_history[code]) > 65:
-                    self.adjclose_history[code] = self.adjclose_history[code][-65:]
+                if len(self.adjclose_history[code]) > 60:
+                    self.adjclose_history[code] = self.adjclose_history[code][-60:]
 
             # 2. 基线策略初始化
             if 'BuyAndHoldAll' in self.cfg.MODELS and not self._baseline_init:
@@ -324,6 +328,12 @@ class BacktestEngine:
                                         self.sensitive_switch_ic_history[m].append(ic)
                                         if len(self.sensitive_switch_ic_history[m]) > 10:
                                             self.sensitive_switch_ic_history[m] = self.sensitive_switch_ic_history[m][-10:]
+
+                                # 🔑 新增：记录用于绘图的 Residual IC (包含日期)
+                                if m not in self.daily_resid_ic_results:
+                                    self.daily_resid_ic_results[m] = []
+                                self.daily_resid_ic_results[m].append({'TRADE_DT': date, 'IC': ic})
+
                     except Exception as e:
                         logger.error(f"❌ {m} Residual 计算失败: {e}")
 
@@ -478,6 +488,14 @@ class BacktestEngine:
                     'TRADE_DT': date,
                     'Model': self.dynamic_current_model
                 })
+
+            # 🔑 新增：记录当日 SensitiveSwitch 使用的模型
+            if 'SensitiveSwitch' in self.cfg.MODELS:
+                self.sensitive_switch_history.append({
+                    'TRADE_DT': date,
+                    'Model': self.sensitive_current_model
+                })
+
                 
             # 5. 🔑 无未来函数误差结算 (Delayed Realized Error)
             # 计算需要结算的预测日 (T 日 = 当前 T+i 日 - i 个交易日)
