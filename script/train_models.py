@@ -39,7 +39,9 @@ def train_tree_models(model_name, model_type, X_train, y_train, X_eval=None, y_e
     elif model_type == 'lgbm':
         model = lgb.LGBMRegressor(n_estimators=500, max_depth=5, learning_rate=0.05, random_state=42, verbosity=-1)
         callbacks = [lgb.early_stopping(50, verbose=False), lgb.log_evaluation(0)] if eval_set else []
-        model.fit(X_train, y_train, eval_set=eval_set, callbacks=callbacks)
+        # model.fit(X_train, y_train, eval_set=eval_set, callbacks=callbacks)
+        model.fit(X_train, y_train, 
+                  eval_X=X_eval, eval_y=y_eval, callbacks=callbacks)
         
     return model
 
@@ -114,6 +116,10 @@ def main():
         
         for model_name, model_type, feats, dates in tasks:
             train_mask = train_df['TRADE_DT'] <= pd.to_datetime(dates['train_end'])
+            if model_name in cfg.FEATURE_SELECTED:
+                feats = cfg.FEATURE_SELECTED[model_name]  # 使用消融特征集
+            else:
+                continue  # 如果没有定义消融特征集，则跳过该模型
             X_tr, y_tr = train_df[train_mask][feats], train_df[train_mask][label_col]
             
             X_ev, y_ev = None, None

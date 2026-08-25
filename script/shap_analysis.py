@@ -198,8 +198,12 @@ def run_quarterly_analysis(cfg: Config, model_type: str = 'LightGBM'):
 def main():
     setup_logging()
     cfg = Config()
-    run_quarterly_analysis(cfg, model_type='LightGBM')
-    run_quarterly_analysis(cfg, model_type='XGBoost')  # 如果你有 XGBoost 模型，也可以运行
+    run_quarterly_analysis(cfg, model_type='XGB-22')
+    run_quarterly_analysis(cfg, model_type='XGB-23')
+    run_quarterly_analysis(cfg, model_type='XGB-24')
+    run_quarterly_analysis(cfg, model_type='LGBM-22')
+    run_quarterly_analysis(cfg, model_type='LGBM-23')
+    run_quarterly_analysis(cfg, model_type='LGBM-24')
 
 if __name__ == "__main__":
     main()

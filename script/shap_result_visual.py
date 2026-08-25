@@ -166,5 +166,9 @@ def main(model_type='LightGBM'):
     print("\n🎉 所有可视化图表生成完毕！请查看 output/figures/ 目录。")
 
 if __name__ == "__main__":
-    main(model_type='LightGBM')  # 可选 'XGBoost'，根据实际情况选择
-    main(model_type='XGBoost')  # 如果你有 XGBoost 模型，也可以运行
+    main(model_type='LGBM-22')  # 可选 'XGBoost'，根据实际情况选择
+    main(model_type='LGBM-23')  # 如果你有 XGBoost 模型，也可以运行
+    main(model_type='LGBM-24')  # 如果你有 XGBoost 模型，也可以运行
+    main(model_type='XGB-22')
+    main(model_type='XGB-23')  # 如果你有 XGBoost 模型，也可以运行
+    main(model_type='XGB-24')  # 如果你有 XGBoost 模型，也可以运行

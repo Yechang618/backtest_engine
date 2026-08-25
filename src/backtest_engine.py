@@ -19,9 +19,9 @@ class BacktestEngine:
 
         # 🔑 根据是否消融，初始化三套特征集
         if self.ablation:
-            self.feature_cols_lgbm = config.FEATURE_SELECTED_LGBM
-            self.feature_cols_xgb = config.FEATURE_SELECTED_XGB
-            self.feature_cols = config.FEATURE_SELECTED
+            self.feature_cols_selected = config.FEATURE_SELECTED
+            # self.feature_cols_xgb = config.FEATURE_SELECTED_XGB
+            self.feature_cols = config.FEATURE_COLS
         else:
             self.feature_cols_lgbm = config.FEATURE_COLS
             self.feature_cols_xgb = config.FEATURE_COLS
@@ -70,6 +70,8 @@ class BacktestEngine:
 
     # 🔑 新增：特征路由辅助方法
     def _get_features_for_model(self, model_name: str) -> List[str]:
+        if self.ablation and model_name in self.feature_cols_selected:
+            return self.feature_cols_selected[model_name]
         if 'XGB' in model_name:
             return self.feature_cols_xgb
         elif 'LGBM' in model_name:
