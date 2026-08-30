@@ -10,95 +10,71 @@ from .backtest_core import PortfolioManager
 logger = logging.getLogger(__name__)
 
 class BacktestEngine:
-    # 🔑 修改 __init__ 增加 trade_pools 参数
     def __init__(self, df: pd.DataFrame, config, trainers: dict, label_col: str = 'label_1', ablation=False, trade_pools: dict = None):
         self.df = df[df['FEATURE_MASK'] == 1].copy()
         self.cfg = config
         self.ablation = ablation
-        self.trade_pools = trade_pools  # 🔑 新增：股票池硬约束
-
-        # 🔑 根据是否消融，初始化三套特征集
+        self.trade_pools = trade_pools
+        
+        # 🔑 特征集初始化
+        self.feature_cols = config.FEATURE_COLS  # 全量特征集 (用于全量模型)
         if self.ablation:
-            self.feature_cols_selected = config.FEATURE_SELECTED
-            # self.feature_cols_xgb = config.FEATURE_SELECTED_XGB
-            self.feature_cols = config.FEATURE_COLS
-        else:
-            self.feature_cols_lgbm = config.FEATURE_COLS
-            self.feature_cols_xgb = config.FEATURE_COLS
-            self.feature_cols = config.FEATURE_COLS
-
-        print(f"🔧 BacktestEngine 初始化 | 样本数: {len(self.df)} | 特征数: {len(self.feature_cols_lgbm)} | 标签列: {label_col}")
+            # 消融特征集 (字典: {model_name: [features]})
+            self.feature_cols_ablation = config.FEATURE_SELECTED if isinstance(config.FEATURE_SELECTED, dict) else {}
+            
+        print(f"🔧 BacktestEngine 初始化 | 样本数: {len(self.df)} | 消融模式: {self.ablation} | 标签列: {label_col}")
         self.label_col = label_col
+        
         self.portfolios = {m: PortfolioManager(config.INITIAL_CAPITAL, config.COMMISSION_RATE) for m in config.MODELS}
         self.returns_history = defaultdict(list)
         self.trainers = trainers
         self._baseline_init = False
-
-        # 🔑 新增：用于计算 Residual 的历史价格缓存
+        
+        # 历史价格缓存 (用于 Residual)
         self.adjclose_history = defaultdict(list)
         
-        # 🔑 新增：SensitiveSwitch 状态与 Residual 缓存
-        self.residual_cache = {}  # {model_name: pd.Series}
+        # SensitiveSwitch 状态与 Residual 缓存
+        self.residual_cache = {}
         self.sensitive_current_model = getattr(config, 'SENSITIVE_SWITCH_INIT_MODEL', 'LGBM-24')
         self.sensitive_switch_ic_history = {m: [] for m in getattr(config, 'SENSITIVE_SWITCH_BASE_MODELS', [])}
-
-        # 🔑 新增：用于绘制 Residual IC 和 SensitiveSwitch 历史的数据结构
         self.daily_resid_ic_results = {}
         self.sensitive_switch_history = []
-
-        # 🔑 功能一：每日 Rank IC 记录
-        self.daily_ic_results = {m: [] for m in self.cfg.MODELS}
         
-        # 🔑 功能二：动态切换策略状态
+        # DynamicSwitch 状态
+        self.daily_ic_results = {m: [] for m in self.cfg.MODELS}
         self.dynamic_current_model = getattr(config, 'DYNAMIC_SWITCH_INIT_MODEL', 'OptSharpe')
         self.dynamic_ic_history = {m: [] for m in getattr(config, 'DYNAMIC_SWITCH_BASE_MODELS', [])}
         self.dynamic_b = getattr(config, 'DYNAMIC_SWITCH_B', 1.05)
-
-        # 🔑 无未来函数设计：预测误差延迟结算机制
-        self.mse_results = {m: [] for m in self.cfg.MODELS}
-        self.prediction_cache = defaultdict(dict)  # 结构: {pred_date: {model_name: {code: pred_value}}}
-
-        # 🔑 新增：记录 DynamicSwitch 每日使用的模型历史
         self.dynamic_switch_history = []
-
-        self._check_feature_alignment() # 🔑 新增：特征对齐校验
+        
+        # 无未来函数误差结算
+        self.mse_results = {m: [] for m in self.cfg.MODELS}
+        self.prediction_cache = defaultdict(dict)
+        
+        self._check_feature_alignment()
         
         if self.trade_pools:
             logging.info(f"🚫 启用股票池硬约束 | 覆盖月份数: {len(self.trade_pools)}")
+        logging.info(f"BacktestEngine 初始化完成 | 模型: {list(self.trainers.keys())} | 样本数: {len(self.df)}")
 
-        logging.info(f"BacktestEngine 初始化完成 (加载预训练模型) | 模型: {list(self.trainers.keys())} | 样本数: {len(self.df)}")
-
-    # 🔑 新增：特征路由辅助方法
     def _get_features_for_model(self, model_name: str) -> List[str]:
-        if self.ablation and model_name in self.feature_cols_selected:
-            return self.feature_cols_selected[model_name]
-        if 'XGB' in model_name:
-            return self.feature_cols_xgb
-        elif 'LGBM' in model_name:
-            return self.feature_cols_lgbm
-        else:
-            return self.feature_cols
+        """🔑 特征路由：优先使用消融专属特征集，否则使用全量特征集"""
+        if self.ablation and hasattr(self, 'feature_cols_ablation') and model_name in self.feature_cols_ablation:
+            return self.feature_cols_ablation[model_name]
+        return self.feature_cols
 
     def _check_feature_alignment(self):
-        """确保测试集特征顺序/名称与训练时一致 (按模型类型分别对齐)"""
+        """确保测试集特征顺序/名称与训练时一致"""
         for name, model in self.trainers.items():
             if hasattr(model, 'feature_names_in_'):
                 target_feats = self._get_features_for_model(name)
                 trained_features = list(model.feature_names_in_)
-                print(f"🔍 {name} 训练特征数: {len(trained_features)} | 测试特征数: {len(target_feats)}")
-                
                 if set(trained_features) != set(target_feats):
                     aligned_feats = [c for c in trained_features if c in target_feats]
-                    print(f"⚠️ {name} 特征不匹配 | 训练特征数: {len(trained_features)} | 测试特征数: {len(target_feats)} | 对齐后特征数: {len(aligned_feats)}")
-                    # print(f"训练特征: {trained_features}")
-                    # print(f"测试特征: {target_feats}")
-                    # print(f"对齐后特征: {aligned_feats}")
                     logger.warning(f"⚠️ {name} 特征不匹配，已自动对齐至 {len(aligned_feats)} 个")
-                    
-                    if 'XGB' in name:
-                        self.feature_cols_xgb = aligned_feats
-                    elif 'LGBM' in name:
-                        self.feature_cols_lgbm = aligned_feats
+                    # 更新对应的特征集
+                    if self.ablation and hasattr(self, 'feature_cols_ablation') and name in self.feature_cols_ablation:
+                        self.feature_cols_ablation[name] = aligned_feats
                     else:
                         self.feature_cols = aligned_feats
 

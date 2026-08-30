@@ -6,65 +6,52 @@ import glob
 import logging
 import datetime
 import joblib
-# import torch
 import pandas as pd
 from pathlib import Path
 from typing import Dict, Set
 
 ROOT = Path(__file__).resolve().parents[1]
-print(f"🔧 Backtest Engine Root: {ROOT}")
 sys.path.insert(0, str(ROOT))
 
-
-from util.data_loader import load_panel_data, compute_real_returns, extract_valid_features, compute_derived_factors # 🔑 新增导入
+from util.data_loader import load_panel_data, compute_real_returns, extract_valid_features, compute_derived_factors
 from src.backtest_engine import BacktestEngine
 from util.metrics import evaluate_and_plot
 from config.Config import Config
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
-# from src.transformer_model import PyTorchTabularRegressor, SimpleTabularTransformer
 
 def setup_logging():
     logging.basicConfig(level=logging.INFO, format='%(asctime)s | %(levelname)s | %(message)s')
 
-def load_pretrained_models(model_dir: str, feature_cols: list, ablation=False):
+def load_pretrained_models(model_dir: str, ablation=False):
+    """加载预训练模型，消融模型自动去除 _ablation 后缀以匹配 cfg.MODELS"""
     trainers = {}
-    if ablation == False:
+    if not ablation:
         sklearn_path = os.path.join(model_dir, "sklearn_models.pkl")
         if os.path.exists(sklearn_path):
             trainers.update(joblib.load(sklearn_path))
     else:
         ablation_sklearn_path = os.path.join(model_dir, "ablation_sklearn_models.pkl")
         if os.path.exists(ablation_sklearn_path):
-            trainers.update(joblib.load(ablation_sklearn_path))
+            raw_trainers = joblib.load(ablation_sklearn_path)
+            # 🔑 核心：去除 _ablation 后缀，使模型名称与 cfg.MODELS 对齐
+            trainers = {k.replace('_ablation', ''): v for k, v in raw_trainers.items()}
     return trainers
 
-# 🔑 新增：加载股票池数据
 def load_trade_pools(pool_dir: str) -> Dict[str, Set[str]]:
     """加载 TRADE_POOL_DIR 下的 CSV 文件，解析为 {月份: 股票代码集合} 的字典"""
     trade_pools = {}
-    if not os.path.exists(pool_dir):
-        logging.warning(f"⚠️ 股票池目录不存在: {pool_dir}")
-        return trade_pools
-        
+    if not os.path.exists(pool_dir): return trade_pools
     csv_files = glob.glob(os.path.join(pool_dir, "trade_pool_2026*.csv"))
-    if not csv_files:
-        logging.warning(f"⚠️ 未在 {pool_dir} 中找到匹配的股票池 CSV 文件")
-        return trade_pools
-        
     for f in csv_files:
         try:
             df_pool = pd.read_csv(f, usecols=['effective_month', 'code'], dtype={'code': str})
             for month, group in df_pool.groupby('effective_month'):
                 month_str = str(month).strip()
-                if month_str not in trade_pools:
-                    trade_pools[month_str] = set()
-                codes = set(group['code'].str.strip().tolist())
-                trade_pools[month_str].update(codes)
+                if month_str not in trade_pools: trade_pools[month_str] = set()
+                trade_pools[month_str].update(set(group['code'].str.strip().tolist()))
         except Exception as e:
             logging.warning(f"⚠️ 读取股票池文件失败 {f}: {e}")
-            
-    logging.info(f"✅ 成功加载 {len(trade_pools)} 个月的股票池数据 | 月份: {sorted(trade_pools.keys())}")
     return trade_pools
 
 def plot_daily_ic(daily_ic_results, dynamic_switch_history, figure_dir, start_date='', reba_wd='', file_suffix=''):
@@ -238,138 +225,119 @@ def main(start_date='2025-01-01', use_trade_pool=False):
     cfg.LOG_DIR.mkdir(parents=True, exist_ok=True)
     
     ablation = cfg.SHAP_ABLATION
-    # 🔑 新增：文件后缀，用于区分股票池实验
     file_suffix = '_st' if use_trade_pool else '' 
-
-    # 🔑 修改：打印 REBALANCE_WEEKDAY 配置
+    
     wd_names = {0: '周一', 1: '周二', 2: '周三', 3: '周四', 4: '周五', None: '禁用(使用天数)'}
     target_wd_str = wd_names.get(getattr(cfg, 'REBALANCE_WEEKDAY', None), '未知')
-
-    logging.info(f"🔧 回测引擎已启动 | 起始日: {start_date} | 股票池约束: {'启用' if use_trade_pool else '禁用'}")
-    logging.info(f"⚙️ 回测配置已调整: WARMUP_DAYS={cfg.WARMUP_DAYS}, REBALANCE_DAYS={cfg.REBALANCE_DAYS}, REBALANCE_WEEKDAY={target_wd_str}")
+    logging.info(f"🔧 回测引擎已启动 | 起始日: {start_date} | 股票池: {'启用' if use_trade_pool else '禁用'} | 消融: {'启用' if ablation else '禁用'}")
     
-    if ablation:
-        logging.info("🧪 消融实验模式已启用 | 仅使用选定特征进行回测")
-
     # 1. 加载面板数据
     logging.info("📦 加载面板数据...")
     try:
-        # 🔑 修改：传入 exclude_bj=cfg.EXCLUDE_BJ
         df = load_panel_data(None, cfg.DATA_TEST_DIR, [], load_train=False, load_test=True, exclude_bj=cfg.EXCLUDE_BJ)
     except TypeError:
-        # 🔑 修改：传入 exclude_bj=cfg.EXCLUDE_BJ
         df = load_panel_data(cfg.DATA_DIR, cfg.DATA_TEST_DIR, list(range(2022, 2027)), file_prefix="train", exclude_bj=cfg.EXCLUDE_BJ)
         
     df = compute_real_returns(cfg.RAW_PANEL, df, i=cfg.REBALANCE_DAYS)
-
-    # 🔑 新增：计算衍生因子 (必须与训练集保持完全一致的处理逻辑)
     df = compute_derived_factors(df, price_col='S_DQ_ADJCLOSE')
+    cfg.FEATURE_COLS = extract_valid_features(df)
     
-    feature_cols = extract_valid_features(df)
-    cfg.FEATURE_COLS = feature_cols  
-    logging.info(f"📊 数据加载完成 | 总形状: {df.shape} | 特征数: {len(feature_cols)}")
-
-    logging.info(f"📦 从 {cfg.MODEL_DIR} 加载预训练模型...")
-    trainers = load_pretrained_models(str(cfg.MODEL_DIR), cfg.FEATURE_COLS)
-    if not trainers:
-        raise RuntimeError("未加载到任何模型，请先运行 script/train_models.py")
-
-    logging.info(f"Loading ablation models from {cfg.MODEL_DIR}...")
-    trainers_ablation = load_pretrained_models(str(cfg.MODEL_DIR), cfg.FEATURE_SELECTED, ablation=True)
-    if ablation and not trainers_ablation:
-        raise RuntimeError("未加载到任何消融实验模型，请先运行 script/train_models.py 并启用消融实验")
-
-    # 🔑 2. 加载股票池 (如果启用)
-    trade_pools = None
-    if use_trade_pool:
-        logging.info(f"📦 从 {cfg.TRADE_POOL_DIR} 加载股票池硬约束数据...")
-        trade_pools = load_trade_pools(cfg.TRADE_POOL_DIR)
-        if not trade_pools:
-            logging.error("❌ 股票池数据为空，终止实验！")
-            return
-
-    logging.info("✅ 股票池数据加载完成")
-
-    # 3. 数据隔离
-    test_start_date = pd.to_datetime(start_date)
-    
-    df_test = df[df['TRADE_DT'] >= test_start_date].copy()
-    logging.info(f"🔒 数据隔离完成 | 样本外测试集形状: {df_test.shape} (起始日: {test_start_date})")
-
-    # 4. 启动回测 (传入 trade_pools)
+    # 2. 加载模型
+    logging.info("📦 加载预训练模型...")
+    trainers = load_pretrained_models(str(cfg.MODEL_DIR), ablation=False)
+    if not trainers: raise RuntimeError("未加载到任何全量模型")
+        
+    trainers_ablation = {}
     if ablation:
-        logging.info("🧪 使用消融实验模型进行回测...")
-        engine_ab = BacktestEngine(df_test, cfg, trainers=trainers_ablation, label_col=f'label_{cfg.REBALANCE_DAYS}', ablation=True, trade_pools=trade_pools)
-        results_ab = engine_ab.run()
-        plot_prediction_error(engine_ab.mse_results, str(cfg.FIG_DIR), suffix="_ablation", start_date=start_date, reba_wd=cfg.REBALANCE_WEEKDAY, file_suffix=file_suffix)
-
-    logging.info("🚀 使用预训练模型进行回测...")
+        logging.info("🧪 加载消融实验模型...")
+        trainers_ablation = load_pretrained_models(str(cfg.MODEL_DIR), ablation=True)
+        if not trainers_ablation:
+            logging.warning("⚠️ 未找到消融模型，将跳过消融实验")
+            ablation = False
+            
+    # 3. 加载股票池
+    trade_pools = load_trade_pools(cfg.TRADE_POOL_DIR) if use_trade_pool else None
+        
+    # 4. 数据隔离
+    test_start_date = pd.to_datetime(start_date)
+    df_test = df[df['TRADE_DT'] >= test_start_date].copy()
+    
+    # 5. 运行全量回测
+    logging.info("🚀 使用全量模型进行回测...")
     engine = BacktestEngine(df_test, cfg, trainers=trainers, label_col=f'label_{cfg.REBALANCE_DAYS}', trade_pools=trade_pools)
     results = engine.run()
     plot_prediction_error(engine.mse_results, str(cfg.FIG_DIR), suffix="_full", start_date=start_date, reba_wd=cfg.REBALANCE_WEEKDAY, file_suffix=file_suffix)
-
+    
+    # 6. 运行消融回测
     if ablation:
+        logging.info("🧪 使用消融模型进行回测...")
+        engine_ab = BacktestEngine(df_test, cfg, trainers=trainers_ablation, label_col=f'label_{cfg.REBALANCE_DAYS}', ablation=True, trade_pools=trade_pools)
+        results_ab = engine_ab.run()
+        plot_prediction_error(engine_ab.mse_results, str(cfg.FIG_DIR), suffix="_ablation", start_date=start_date, reba_wd=cfg.REBALANCE_WEEKDAY, file_suffix=file_suffix)
+        
+        # 🔑 核心：合并结果与诊断数据，加上 _ablation 后缀以区分
         for name in results_ab.keys():
-            if name not in ['ElasticNet', 'BuyAndHoldAll', 'OptSharpe', 'DynamicSwitch']:
-                results[name + "_ablation"] = results_ab[name]
+            results[f"{name}_ablation"] = results_ab[name]
+        for name in engine_ab.daily_ic_results.keys():
+            engine.daily_ic_results[f"{name}_ablation"] = engine_ab.daily_ic_results[name]
+        for name in engine_ab.daily_resid_ic_results.keys():
+            engine.daily_resid_ic_results[f"{name}_ablation"] = engine_ab.daily_resid_ic_results[name]
 
+    # 7. 保存日志与绘图
     for name, pf in engine.portfolios.items():
         pf.save_logs(name, str(cfg.LOG_DIR))
-
-    # 5. 生成图表 (传入 suffix)
+        
     logging.info("📊 生成图表...")
     metrics_summary = evaluate_and_plot(results, str(cfg.OUT_DIR), str(cfg.FIG_DIR), start_date=start_date, reba_wd=cfg.REBALANCE_WEEKDAY, TOP_K=cfg.TOP_K, suffix=file_suffix)
     
     plot_daily_ic(engine.daily_ic_results, getattr(engine, 'dynamic_switch_history', []), str(cfg.FIG_DIR), start_date=start_date, reba_wd=cfg.REBALANCE_WEEKDAY, file_suffix=file_suffix)
-
-    # 🔑 新增：Residual IC 绘图
-    plot_daily_resIc(
-        getattr(engine, 'daily_resid_ic_results', {}), 
-        getattr(engine, 'sensitive_switch_history', []), 
-        str(cfg.FIG_DIR), 
-        start_date=start_date, 
-        reba_wd=cfg.REBALANCE_WEEKDAY, 
-        file_suffix=file_suffix
-    )
+    plot_daily_resIc(engine.daily_resid_ic_results, getattr(engine, 'sensitive_switch_history', []), str(cfg.FIG_DIR), start_date=start_date, reba_wd=cfg.REBALANCE_WEEKDAY, file_suffix=file_suffix)
     
+    # 8. 打印绩效表格
     print("\n" + "="*90)
     print("🏆 回测综合绩效评估 (Out-of-Sample / Test Set)")
     print("="*90)
-    print(f"{'Model':<15} | {'Total PnL':<10} | {'Annual Ret':<11} | {'Max DD':<10} | {'Sharpe':<8} | {'Win Rate':<10} | {'Closed Trades'}")
+    print(f"{'Model':<20} | {'Total PnL':<10} | {'Annual Ret':<11} | {'Max DD':<10} | {'Sharpe':<8} | {'Win Rate':<10} | {'Closed Trades'}")
     print("-" * 90)
     
     summary_json = {"generated_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "models": {}}
-    
     for name, pf in engine.portfolios.items():
         stats = metrics_summary.get(name, {})
         total_ret = stats.get('total_return', 0.0)
         ann_ret = stats.get('annual_return', 0.0)
         max_dd = stats.get('max_drawdown', 0.0)
         sharpe = stats.get('sharpe', 0.0)
-        
         t_stats = pf.trade_stats
         total_trades = t_stats['total_closed']
         win_rate = (t_stats['wins'] / total_trades * 100) if total_trades > 0 else 0.0
         
-        print(f"{name:<15} | {total_ret:>9.2%} | {ann_ret:>10.2%} | {max_dd:>9.2%} | {sharpe:>7.3f} | {win_rate:>9.2f}% | {total_trades:>13}")
-        
+        print(f"{name:<20} | {total_ret:>9.2%} | {ann_ret:>10.2%} | {max_dd:>9.2%} | {sharpe:>7.3f} | {win_rate:>9.2f}% | {total_trades:>13}")
         summary_json["models"][name] = {
             "total_return": float(total_ret), "annual_return": float(ann_ret),
             "max_drawdown": float(max_dd), "sharpe_ratio": float(sharpe),
             "trade_statistics": {"win_rate_pct": float(win_rate), "total_closed_trades": int(total_trades)}
         }
+        
+    # 打印消融模型绩效
+    if ablation:
+        print("-" * 90)
+        for name in results.keys():
+            if name.endswith('_ablation'):
+                stats = metrics_summary.get(name, {})
+                total_ret = stats.get('total_return', 0.0)
+                ann_ret = stats.get('annual_return', 0.0)
+                max_dd = stats.get('max_drawdown', 0.0)
+                sharpe = stats.get('sharpe', 0.0)
+                print(f"{name:<20} | {total_ret:>9.2%} | {ann_ret:>10.2%} | {max_dd:>9.2%} | {sharpe:>7.3f} | {'N/A':>10} | {'N/A':>13}")
+                summary_json["models"][name] = {"total_return": float(total_ret), "annual_return": float(ann_ret), "max_drawdown": float(max_dd), "sharpe_ratio": float(sharpe)}
+
     print("="*90 + "\n")
     
     json_path = cfg.OUT_DIR / "backtest_summary.json"
     with open(json_path, 'w', encoding='utf-8') as f:
         json.dump(summary_json, f, indent=4, ensure_ascii=False)
     logging.info(f"✅ 综合绩效汇总已保存至 JSON: {json_path}")
-
-    engine.analyze_shap(str(cfg.FIG_DIR), sample_size=cfg.SHAP_SAMPLE_SIZE)
     logging.info(f"✅ 实验流程完成！(后缀: {file_suffix if file_suffix else '无'})")
 
-
 if __name__ == "__main__":
-    # main(start_date='2025-01-01')
-    # main(start_date='2026-01-01')  # 可选：运行第二次回测，起始日为 2026-01-01
     main(start_date='2026-01-01', use_trade_pool=True)

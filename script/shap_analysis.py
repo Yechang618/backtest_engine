@@ -204,6 +204,12 @@ def main():
     run_quarterly_analysis(cfg, model_type='LGBM-22')
     run_quarterly_analysis(cfg, model_type='LGBM-23')
     run_quarterly_analysis(cfg, model_type='LGBM-24')
+    run_quarterly_analysis(cfg, model_type='XGB-low')
+    run_quarterly_analysis(cfg, model_type='XGB-mid')
+    run_quarterly_analysis(cfg, model_type='XGB-high')
+    run_quarterly_analysis(cfg, model_type='LGBM-low')
+    run_quarterly_analysis(cfg, model_type='LGBM-mid')
+    run_quarterly_analysis(cfg, model_type='LGBM-high')
 
 if __name__ == "__main__":
     main()
