@@ -62,19 +62,18 @@ def train_tree_models(model_name, model_type, X_train, y_train, X_eval=None, y_e
     
     if model_type == 'xgb':
         model = xgb.XGBRegressor(
-            n_estimators=1000, max_depth=5, learning_rate=0.05, 
+            n_estimators=500, max_depth=5, learning_rate=0.05, 
             random_state=42, verbosity=0
         )
         # 🔑 启用 Early Stopping
         model.fit(
             X_train, y_train, 
             eval_set=eval_set, 
-            early_stopping_rounds=50 if eval_set else None, 
             verbose=False
         )
     elif model_type == 'lgbm':
         model = lgb.LGBMRegressor(
-            n_estimators=1000, max_depth=5, learning_rate=0.05, 
+            n_estimators=500, max_depth=5, learning_rate=0.05, 
             random_state=42, verbosity=-1
         )
         callbacks = []
