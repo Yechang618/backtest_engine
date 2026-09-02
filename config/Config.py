@@ -12,7 +12,8 @@ class Config:
     DATA_TEST_DIR = f"{DATA_ROOT}/model_ready_panel_selected_fin_ind_pv_adj_masks_rebuild_20150105_{Date}.parquet"
     DATA_DIR = DATA_TEST_DIR
     
-    TRADE_POOL_DIR = f"{DATA_RAW_ROOT}/riva_cn_tech_trade_pools_202601_202608".strip()
+    # TRADE_POOL_DIR = f"{DATA_RAW_ROOT}/riva_cn_tech_trade_pools_202601_202608".strip()
+    TRADE_POOL_DIR = f"/home/eric/workspace/data/riva_cn_tech_trade_pools_202601_202608".strip()
 
     # 📂 工程路径 (可写)
     ROOT = Path(__file__).resolve().parents[1]
@@ -43,6 +44,8 @@ class Config:
         'ElasticNet', 
         'XGB-22', 'XGB-23', 'XGB-24', 
         'LGBM-22', 'LGBM-23', 'LGBM-24', 
+         'XGB-low', 'XGB-mid', 'XGB-high',
+        'LGBM-low', 'LGBM-mid', 'LGBM-high',
         'OptSharpe', 'DynamicSwitch', 'SensitiveSwitch', 
         'BuyAndHoldAll'
     ]    
@@ -52,7 +55,13 @@ class Config:
     DYNAMIC_SWITCH_BASE_MODELS = [
         'ElasticNet', 'OptSharpe', 
         'XGB-22', 'XGB-23', 'XGB-24', 
-        'LGBM-22', 'LGBM-23', 'LGBM-24'
+        'LGBM-22', 'LGBM-23', 'LGBM-24',
+        'XGB-low', 'XGB-mid', 'XGB-high',
+        'LGBM-low', 'LGBM-mid', 'LGBM-high',
+        'XGB-22_ablation', 'XGB-23_ablation', 'XGB-24_ablation',
+        'LGBM-22_ablation', 'LGBM-23_ablation', 'LGBM-24_ablation',
+        'XGB-low_ablation', 'XGB-mid_ablation', 'XGB-high_ablation',
+        'LGBM-low_ablation', 'LGBM-mid_ablation', 'LGBM-high_ablation'  
     ]  
     DYNAMIC_SWITCH_B = 1.00  
 
@@ -61,7 +70,13 @@ class Config:
     SENSITIVE_SWITCH_BASE_MODELS = [
         'ElasticNet', 'OptSharpe', 
         'XGB-22', 'XGB-23', 'XGB-24', 
-        'LGBM-22', 'LGBM-23', 'LGBM-24'
+        'LGBM-22', 'LGBM-23', 'LGBM-24',
+        'XGB-low', 'XGB-mid', 'XGB-high',
+        'LGBM-low', 'LGBM-mid', 'LGBM-high',
+        'XGB-22_ablation', 'XGB-23_ablation', 'XGB-24_ablation',
+        'LGBM-22_ablation', 'LGBM-23_ablation', 'LGBM-24_ablation',
+        'XGB-low_ablation', 'XGB-mid_ablation', 'XGB-high_ablation',
+        'LGBM-low_ablation', 'LGBM-mid_ablation', 'LGBM-high_ablation'
     ]  
     SENSITIVE_SWITCH_THRESHOLD = 1.0  
 

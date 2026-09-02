@@ -29,7 +29,7 @@ def main():
     
     # 1. 过滤日期范围: 2015-01-01 到 2024-12-31
     start_date = pd.to_datetime('2015-01-01')
-    end_date = pd.to_datetime('2024-12-31')
+    end_date = df['TRADE_DT'].max()
     df = df[(df['TRADE_DT'] >= start_date) & (df['TRADE_DT'] <= end_date)].copy()
     logging.info(f"✅ 日期过滤完成，剩余记录数: {len(df):,}")
     

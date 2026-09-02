@@ -1,4 +1,3 @@
-# /data/cye_temp/workspace/backtest_engine/script/shap_analysis.py
 import json
 import os
 import sys
@@ -98,37 +97,45 @@ def plot_visualizations(shap_dfs, ic_df, fig_dir, model_type='LightGBM'):
         plt.savefig(os.path.join(fig_dir, f'shap_contribution_bar_{model}.png'), dpi=150, bbox_inches='tight')
         plt.close()
 
-def main(model_type='LightGBM'):
+def main():
     cfg = Config()
     out_dir = cfg.OUT_DIR
     fig_dir = out_dir / "figures"
     
-    print("📦 加载季度 SHAP 与 IC/IR 分析结果...")
-    shap_dfs, ic_df = load_and_preprocess_data(str(out_dir), model_type=model_type)
+    # 🔑 核心修改：定义所有需要提取消融特征的模型列表
+    model_types = [
+        'LGBM-22', 'LGBM-23', 'LGBM-24', 'XGB-22', 'XGB-23', 'XGB-24',
+        'LGBM-low', 'LGBM-mid', 'LGBM-high', 'XGB-low', 'XGB-mid', 'XGB-high'
+    ]
     
-    # 🔑 核心新增：提取并保存消融特征
     ablation_features = {}
-    for model, shap_df in shap_dfs.items():
-        mean_shap = shap_df.mean(axis=0).sort_values(ascending=False)
-        # 筛选 SHAP 值 > 0.0001 的特征
-        feature_selected = [feature for feature in mean_shap.index if mean_shap[feature] > 0.0001]
-        ablation_features[model] = feature_selected
-        print(f" - {model}: 筛选出 {len(feature_selected)} 个消融特征 (SHAP > 0.0001)")
-        
+    
+    print("📦 开始遍历模型，提取消融特征并生成可视化图表...")
+    for m_type in model_types:
+        try:
+            print(f"\n{'='*40}\n处理模型: {m_type}\n{'='*40}")
+            shap_dfs, ic_df = load_and_preprocess_data(str(out_dir), model_type=m_type)
+            
+            # 🔑 提取消融特征 (SHAP > 0.0001)
+            # 注意：这里直接使用 m_type 作为 key，确保与后续训练脚本的命名对齐
+            for model, shap_df in shap_dfs.items():
+                mean_shap = shap_df.mean(axis=0).sort_values(ascending=False)
+                feature_selected = [feature for feature in mean_shap.index if mean_shap[feature] > 0.0001]
+                ablation_features[m_type] = feature_selected
+                print(f" - {m_type}: 筛选出 {len(feature_selected)} 个消融特征 (SHAP > 0.0001)")
+                
+            # 生成可视化图表
+            plot_visualizations(shap_dfs, ic_df, str(fig_dir), model_type=m_type)
+            
+        except FileNotFoundError as e:
+            print(f"⚠️ 跳过 {m_type}: {e}")
+            
+    # 🔑 保存所有模型的消融特征配置
     json_path = cfg.ABLATION_FEATURE_JSON
     with open(json_path, 'w', encoding='utf-8') as f:
         json.dump(ablation_features, f, indent=4, ensure_ascii=False)
-    print(f"\n✅ 消融特征配置已保存至: {json_path}")
-    
-    print(f"\n📊 开始生成可视化图表...")
-    plot_visualizations(shap_dfs, ic_df, str(fig_dir), model_type=model_type)
+    print(f"\n✅ 所有模型的消融特征配置已保存至: {json_path}")
     print("\n🎉 所有可视化图表生成完毕！")
 
 if __name__ == "__main__":
-    # 遍历所有已训练的细分模型生成图表与消融特征
-    for m_type in ['LGBM-22', 'LGBM-23', 'LGBM-24', 'XGB-22', 'XGB-23', 'XGB-24']:
-        try:
-            print(f"\n{'='*40}\n处理模型: {m_type}\n{'='*40}")
-            main(model_type=m_type)
-        except FileNotFoundError as e:
-            print(f"⚠️ 跳过 {m_type}: {e}")
+    main()

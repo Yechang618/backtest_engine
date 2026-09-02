@@ -86,7 +86,7 @@ def compute_real_returns(raw_panel_path: str, panel: pd.DataFrame, i: int) -> pd
     ret_df = raw[['S_INFO_WINDCODE', 'TRADE_DT', target, f'label_{i}']].copy()
     ret_df[target] = ret_df.groupby('S_INFO_WINDCODE')[target].ffill()
     merged = panel.merge(ret_df, on=['S_INFO_WINDCODE', 'TRADE_DT'], how='left')
-    print(f"Merged panel with real returns | shape: {merged.shape} | columns: {merged.columns.tolist()}")
+    print(f"Merged panel with real returns | shape: {merged.shape} | columns: {len(merged.columns.tolist())}")
     merged[target] = merged[target].ffill()
     return merged
 
