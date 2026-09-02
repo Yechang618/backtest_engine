@@ -267,10 +267,39 @@ def main(start_date='2026-04-01', rebalancing_weekday = None, use_trade_pool=Fal
         }
     print("="*110 + "\n")
     
+    # json_path = cfg.OUT_DIR / "backtest_summary.json"
+    # with open(json_path, 'w', encoding='utf-8') as f:
+    #     json.dump(summary_json, f, indent=4, ensure_ascii=False)
+    # logging.info(f"✅ 综合绩效汇总已保存至 JSON: {json_path}")
+    # logging.info(f"✅ 实验流程完成！(后缀: {file_suffix if file_suffix else '无'})")
+
+    # ... (在 run_backtest.py 的 main 函数中，找到保存 backtest_summary.json 的位置) ...
+    
     json_path = cfg.OUT_DIR / "backtest_summary.json"
     with open(json_path, 'w', encoding='utf-8') as f:
         json.dump(summary_json, f, indent=4, ensure_ascii=False)
     logging.info(f"✅ 综合绩效汇总已保存至 JSON: {json_path}")
+
+    # 🔑 新增：保存每日 Rank IC 和 Residual Rank IC 数据，供后续分析脚本使用
+    ic_results_path = cfg.OUT_DIR / "daily_ic_results.json"
+    with open(ic_results_path, 'w', encoding='utf-8') as f:
+        # 将 Timestamp 转换为字符串以便 JSON 序列化
+        serializable_ic = {
+            model: [{'TRADE_DT': str(r['TRADE_DT']), 'IC': r['IC']} for r in records]
+            for model, records in engine.daily_ic_results.items()
+        }
+        json.dump(serializable_ic, f, indent=4, ensure_ascii=False)
+    logging.info(f"✅ 每日 Rank IC 数据已保存至: {ic_results_path}")
+
+    resid_ic_results_path = cfg.OUT_DIR / "daily_resid_ic_results.json"
+    with open(resid_ic_results_path, 'w', encoding='utf-8') as f:
+        serializable_resid_ic = {
+            model: [{'TRADE_DT': str(r['TRADE_DT']), 'IC': r['IC']} for r in records]
+            for model, records in engine.daily_resid_ic_results.items()
+        }
+        json.dump(serializable_resid_ic, f, indent=4, ensure_ascii=False)
+    logging.info(f"✅ 每日 Residual Rank IC 数据已保存至: {resid_ic_results_path}")
+
     logging.info(f"✅ 实验流程完成！(后缀: {file_suffix if file_suffix else '无'})")
 
 if __name__ == "__main__":
