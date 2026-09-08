@@ -191,10 +191,15 @@ def main(start_date='2026-04-01', rebalancing_weekday = None, use_trade_pool=Fal
     
     # 🔑 2. 动态更新 Config，将所有树模型纳入路由竞争池
     tree_models = [name for name in trainers.keys() if 'XGB' in name or 'LGBM' in name]
-    base_strategies = ['ElasticNet', 'OptSharpe', 'DynamicSwitch', 'SensitiveSwitch', 'BuyAndHoldAll']
+    base_strategies = ['ElasticNet', 'OptSharpe', 
+                       'DynamicSwitch', 'DynamicSwitch2', 
+                        'DynamicSwitch_IR', 'DynamicSwitch2_IR', 
+                       'SensitiveSwitch', 'BuyAndHoldAll']
     
     cfg.MODELS = base_strategies + tree_models
     cfg.DYNAMIC_SWITCH_BASE_MODELS = tree_models
+    cfg.DYNAMIC_SWITCH2_BASE_MODELS = tree_models
+    cfg.DYNAMIC_SWITCH2_IR_BASE_MODELS = tree_models
     cfg.SENSITIVE_SWITCH_BASE_MODELS = tree_models
     logging.info(f"🔄 动态更新路由配置 | 参与竞争的树模型数: {len(tree_models)}")
 
@@ -275,13 +280,13 @@ def main(start_date='2026-04-01', rebalancing_weekday = None, use_trade_pool=Fal
 
     # ... (在 run_backtest.py 的 main 函数中，找到保存 backtest_summary.json 的位置) ...
     
-    json_path = cfg.OUT_DIR / "backtest_summary.json"
+    json_path = cfg.OUT_DIR / f"backtest_summary_{rebalancing_weekday}.json"
     with open(json_path, 'w', encoding='utf-8') as f:
         json.dump(summary_json, f, indent=4, ensure_ascii=False)
     logging.info(f"✅ 综合绩效汇总已保存至 JSON: {json_path}")
 
     # 🔑 新增：保存每日 Rank IC 和 Residual Rank IC 数据，供后续分析脚本使用
-    ic_results_path = cfg.OUT_DIR / "daily_ic_results.json"
+    ic_results_path = cfg.OUT_DIR / f"daily_ic_results_{rebalancing_weekday}.json"
     with open(ic_results_path, 'w', encoding='utf-8') as f:
         # 将 Timestamp 转换为字符串以便 JSON 序列化
         serializable_ic = {
@@ -291,7 +296,7 @@ def main(start_date='2026-04-01', rebalancing_weekday = None, use_trade_pool=Fal
         json.dump(serializable_ic, f, indent=4, ensure_ascii=False)
     logging.info(f"✅ 每日 Rank IC 数据已保存至: {ic_results_path}")
 
-    resid_ic_results_path = cfg.OUT_DIR / "daily_resid_ic_results.json"
+    resid_ic_results_path = cfg.OUT_DIR / f"daily_resid_ic_results_{rebalancing_weekday}.json"
     with open(resid_ic_results_path, 'w', encoding='utf-8') as f:
         serializable_resid_ic = {
             model: [{'TRADE_DT': str(r['TRADE_DT']), 'IC': r['IC']} for r in records]

@@ -4,7 +4,7 @@ from pathlib import Path
 
 class Config:
     # 📂 数据路径 (只读)
-    Date = "20260827"
+    Date = "20260904"
     # DATA_RAW_ROOT, DATA_ROOT = r"C:\Users\yecha\workspace\data", r"C:\Users\yecha\workspace\data"
     DATA_RAW_ROOT, DATA_ROOT = "/data/data_process/5.27_update/rebuild", "/data/data_process/5.27_update/rebuild/model_training_step15_selected_panel"
     
@@ -46,7 +46,9 @@ class Config:
         'LGBM-22', 'LGBM-23', 'LGBM-24', 
          'XGB-low', 'XGB-mid', 'XGB-high',
         'LGBM-low', 'LGBM-mid', 'LGBM-high',
-        'OptSharpe', 'DynamicSwitch', 'SensitiveSwitch', 
+        'OptSharpe', 'DynamicSwitch', 'DynamicSwitch2',
+        'DynamicSwitch_IR', 'DynamicSwitch2_IR',  # 🔑 新增
+        'SensitiveSwitch', 
         'BuyAndHoldAll'
     ]    
 
@@ -65,19 +67,21 @@ class Config:
     ]  
     DYNAMIC_SWITCH_B = 1.00  
 
+    # 🔑 新增：DynamicSwitch2 (IC 加权集成) 路由配置
+    DYNAMIC_SWITCH2_BASE_MODELS = DYNAMIC_SWITCH_BASE_MODELS
+    DYNAMIC_SWITCH2_WINDOW = 10  # 计算 IC 权重的滚动窗口大小
+
+    # 🔑 新增：DynamicSwitch_IR (基于 IR 切换) 路由配置
+    DYNAMIC_SWITCH_IR_INIT_MODEL = 'LGBM-24'
+    DYNAMIC_SWITCH_IR_BASE_MODELS = DYNAMIC_SWITCH_BASE_MODELS
+    DYNAMIC_SWITCH_IR_B = 1.00  # 切换阈值倍数 (新模型 IR > B * 当前模型 IR 时切换)
+
+    # 🔑 新增：DynamicSwitch2_IR (基于 IR 加权) 路由配置
+    DYNAMIC_SWITCH2_IR_BASE_MODELS = DYNAMIC_SWITCH_BASE_MODELS
+
     # 🔑 SensitiveSwitch 路由配置
     SENSITIVE_SWITCH_INIT_MODEL = 'LGBM-24'
-    SENSITIVE_SWITCH_BASE_MODELS = [
-        'ElasticNet', 'OptSharpe', 
-        'XGB-22', 'XGB-23', 'XGB-24', 
-        'LGBM-22', 'LGBM-23', 'LGBM-24',
-        'XGB-low', 'XGB-mid', 'XGB-high',
-        'LGBM-low', 'LGBM-mid', 'LGBM-high',
-        'XGB-22_ablation', 'XGB-23_ablation', 'XGB-24_ablation',
-        'LGBM-22_ablation', 'LGBM-23_ablation', 'LGBM-24_ablation',
-        'XGB-low_ablation', 'XGB-mid_ablation', 'XGB-high_ablation',
-        'LGBM-low_ablation', 'LGBM-mid_ablation', 'LGBM-high_ablation'
-    ]  
+    SENSITIVE_SWITCH_BASE_MODELS = DYNAMIC_SWITCH_BASE_MODELS
     SENSITIVE_SWITCH_THRESHOLD = 1.0  
 
     # 🔍 SHAP 分析配置
