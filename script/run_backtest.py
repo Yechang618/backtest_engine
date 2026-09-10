@@ -43,7 +43,7 @@ def plot_daily_ic(daily_ic_results, dynamic_switch_history, figure_dir, start_da
         logging.warning("⚠️ 无有效每日 IC 数据，跳过绘图。")
         return
     cfg = Config()
-    reba_wd = cfg.REBALANCE_WEEKDAY if hasattr(cfg, 'REBALANCE_WEEKDAY') else 2
+    # reba_wd = cfg.REBALANCE_WEEKDAY if hasattr(cfg, 'REBALANCE_WEEKDAY') else 2
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(14, 10), gridspec_kw={'height_ratios': [3, 1]}, sharex=True)
     
     for name, records in daily_ic_results.items():
@@ -89,7 +89,7 @@ def plot_daily_resIc(daily_resid_ic_results, sensitive_switch_history, figure_di
         logging.warning("⚠️ 无有效每日 Residual IC 数据，跳过绘图。")
         return
     cfg = Config()
-    reba_wd = cfg.REBALANCE_WEEKDAY if hasattr(cfg, 'REBALANCE_WEEKDAY') else 2
+    # reba_wd = cfg.REBALANCE_WEEKDAY if hasattr(cfg, 'REBALANCE_WEEKDAY') else 2
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(14, 10), gridspec_kw={'height_ratios': [3, 1]}, sharex=True)
     
     for name, records in daily_resid_ic_results.items():
