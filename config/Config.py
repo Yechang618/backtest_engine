@@ -4,7 +4,7 @@ from pathlib import Path
 
 class Config:
     # 📂 数据路径 (只读)
-    Date = "20260904"
+    Date = "20260915"
     # DATA_RAW_ROOT, DATA_ROOT = r"C:\Users\yecha\workspace\data", r"C:\Users\yecha\workspace\data"
     DATA_RAW_ROOT, DATA_ROOT = "/data/data_process/5.27_update/rebuild", "/data/data_process/5.27_update/rebuild/model_training_step15_selected_panel"
     
@@ -44,13 +44,15 @@ class Config:
         'ElasticNet', 
         'XGB-22', 'XGB-23', 'XGB-24', 
         'LGBM-22', 'LGBM-23', 'LGBM-24', 
-         'XGB-low', 'XGB-mid', 'XGB-high',
+        'XGB-low', 'XGB-mid', 'XGB-high',
         'LGBM-low', 'LGBM-mid', 'LGBM-high',
+        'XGB-wLow', 'XGB-wMid', 'XGB-wHigh',  # 🔑 新增周度波动率模型
+        'LGBM-wLow', 'LGBM-wMid', 'LGBM-wHigh', # 🔑 新增周度波动率模型
         'OptSharpe', 'DynamicSwitch', 'DynamicSwitch2',
-        'DynamicSwitch_IR', 'DynamicSwitch2_IR',  # 🔑 新增
+        'DynamicSwitch_IR', 'DynamicSwitch2_IR',
         'SensitiveSwitch', 
         'BuyAndHoldAll'
-    ]    
+    ]     
 
     # 🔄 动态切换策略配置
     DYNAMIC_SWITCH_INIT_MODEL = 'LGBM-24'
@@ -60,10 +62,12 @@ class Config:
         'LGBM-22', 'LGBM-23', 'LGBM-24',
         'XGB-low', 'XGB-mid', 'XGB-high',
         'LGBM-low', 'LGBM-mid', 'LGBM-high',
+        'XGB-wLow', 'XGB-wMid', 'XGB-wHigh',  # 🔑 新增周度波动率模型
+        'LGBM-wLow', 'LGBM-wMid', 'LGBM-wHigh', # 🔑 新增周度波动率模型
         'XGB-22_ablation', 'XGB-23_ablation', 'XGB-24_ablation',
         'LGBM-22_ablation', 'LGBM-23_ablation', 'LGBM-24_ablation',
-        'XGB-low_ablation', 'XGB-mid_ablation', 'XGB-high_ablation',
-        'LGBM-low_ablation', 'LGBM-mid_ablation', 'LGBM-high_ablation'  
+        # 'XGB-low_ablation', 'XGB-mid_ablation', 'XGB-high_ablatioln',
+        # 'LGBM-low_ablation', 'LGBM-mid_ablation', 'LGBM-high_abation'  
     ]  
     DYNAMIC_SWITCH_B = 1.00  
 

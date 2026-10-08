@@ -76,17 +76,27 @@ class BacktestEngine:
             logging.info(f"🚫 启用股票池硬约束 | 覆盖月份数: {len(self.trade_pools)}")
         logging.info(f"BacktestEngine 初始化完成 | 模型: {list(self.trainers.keys())} | 样本数: {len(self.df)}")
 
+    # def _get_features_for_model(self, model_name: str) -> List[str]:
+    #     """🔑 特征路由：优先使用独立缓存的对齐特征集，否则回退到默认逻辑"""
+    #     # 1. 优先返回该模型专属的对齐特征集
+    #     if model_name in self.aligned_features:
+    #         return self.aligned_features[model_name]
+        
+    #     # 2. 如果没有缓存，使用默认路由逻辑
+    #     if self.ablation and hasattr(self, 'feature_cols_ablation') and model_name in self.feature_cols_ablation:
+    #         return self.feature_cols_ablation[model_name]
+        
+    #     # 3. 回退到全量特征集
+    #     return self.feature_cols
+
     def _get_features_for_model(self, model_name: str) -> List[str]:
-        """🔑 特征路由：优先使用独立缓存的对齐特征集，否则回退到默认逻辑"""
-        # 1. 优先返回该模型专属的对齐特征集
-        if model_name in self.aligned_features:
-            return self.aligned_features[model_name]
+        """🔑 特征路由：优先使用专属特征集（支持 _ablation 后缀），否则回退到默认逻辑"""
+        # 1. 优先检查是否有为该模型专属配置的特征集（直接匹配 model_name，包含 _ablation 后缀）
+        if hasattr(self.cfg, 'FEATURE_SELECTED') and isinstance(self.cfg.FEATURE_SELECTED, dict):
+            if model_name in self.cfg.FEATURE_SELECTED:
+                return self.cfg.FEATURE_SELECTED[model_name]
         
-        # 2. 如果没有缓存，使用默认路由逻辑
-        if self.ablation and hasattr(self, 'feature_cols_ablation') and model_name in self.feature_cols_ablation:
-            return self.feature_cols_ablation[model_name]
-        
-        # 3. 回退到全量特征集
+        # 2. 回退到全量特征集 (用于全量模型、Percentile模型等)
         return self.feature_cols
 
     def _check_feature_alignment(self):
@@ -431,69 +441,146 @@ class BacktestEngine:
                         if best_model != self.sensitive_current_model:
                             logger.info(f"🔄 SensitiveSwitch 切换模型: {self.sensitive_current_model} -> {best_model} (Avg Resid IC: {avg_ics.get(self.sensitive_current_model, 0):.4f} -> {avg_ics[best_model]:.4f})")
                             self.sensitive_current_model = best_model            
-                # if is_rebalance_day:
 
-                # 🔑 新增：DynamicSwitch_IR 切换逻辑 (基于 IR)
+                # # 🔑 新增：DynamicSwitch_IR 切换逻辑 (基于 IR)
+                # if 'DynamicSwitch_IR' in self.cfg.MODELS:
+                #     irs = {}
+                #     for m in self.dynamic_ic_history:
+                #         hist = self.dynamic_ic_history[m]
+                #         if len(hist) >= 2:
+                #             mean_ic = np.mean(hist)
+                #             std_ic = np.std(hist)
+                #             irs[m] = mean_ic / (std_ic + 1e-8)
+                #         elif len(hist) > 0:
+                #             irs[m] = np.mean(hist) / 1e-8  # 只有1天数据，IR极大
+                #         else:
+                #             irs[m] = -np.inf
+                    
+                #     if irs:
+                #         best_model = max(irs, key=irs.get)
+                #         best_ir = irs[best_model]
+                        
+                #         # 计算当前模型的 IR
+                #         current_hist = self.dynamic_ic_history.get(self.dynamic_ir_current_model, [])
+                #         if len(current_hist) >= 2:
+                #             current_ir = np.mean(current_hist) / (np.std(current_hist) + 1e-8)
+                #         elif len(current_hist) > 0:
+                #             current_ir = np.mean(current_hist) / 1e-8
+                #         else:
+                #             current_ir = -np.inf
+                            
+                #         b_ir = getattr(self.cfg, 'DYNAMIC_SWITCH_IR_B', 1.00)
+                #         if best_ir > b_ir * current_ir and best_model != self.dynamic_ir_current_model:
+                #             logger.info(f"🔄 DynamicSwitch_IR 切换模型: {self.dynamic_ir_current_model} -> {best_model} (IR: {current_ir:.4f} -> {best_ir:.4f})")
+                #             self.dynamic_ir_current_model = best_model
+
+                # # 🔑 新增：DynamicSwitch2_IR 权重计算逻辑 (基于 IR 加权)
+                # if 'DynamicSwitch2_IR' in self.cfg.MODELS:
+                #     irs_2 = {}
+                #     base_models_2 = getattr(self.cfg, 'DYNAMIC_SWITCH2_IR_BASE_MODELS', [])
+                #     for m in base_models_2:
+                #         if m in self.dynamic_ic_history:
+                #             hist = self.dynamic_ic_history[m]
+                #             if len(hist) >= 2:
+                #                 irs_2[m] = np.mean(hist) / (np.std(hist) + 1e-8)
+                #             elif len(hist) > 0:
+                #                 irs_2[m] = np.mean(hist) / 1e-8
+                #             else:
+                #                 irs_2[m] = -np.inf
+                    
+                #     if irs_2:
+                #         # 平移归一化，确保权重为正
+                #         min_ir = min(irs_2.values())
+                #         if min_ir <= 0:
+                #             irs_2 = {k: v - min_ir + 1e-5 for k, v in irs_2.items()}
+                #         else:
+                #             irs_2 = {k: v + 1e-5 for k, v in irs_2.items()}
+                        
+                #         total_ir = sum(irs_2.values())
+                #         self.dynamic_switch2_ir_weights = {k: v / total_ir for k, v in irs_2.items()}
+                #         self.dynamic_switch2_ir_valid_models = list(irs_2.keys())
+                        
+                #         # 打印权重日志
+                #         weight_log = {m: f"{w:.3f}" for m, w in self.dynamic_switch2_ir_weights.items()}
+                #         logger.info(f"⚖️ DynamicSwitch2_IR 更新权重 (基于IR): {weight_log}")
+                #     else:
+                #         self.dynamic_switch2_ir_weights = None
+
+                # 🔑 修复版：DynamicSwitch_IR 切换逻辑 (基于 IR)
                 if 'DynamicSwitch_IR' in self.cfg.MODELS:
                     irs = {}
-                    for m in self.dynamic_ic_history:
-                        hist = self.dynamic_ic_history[m]
-                        if len(hist) >= 2:
-                            mean_ic = np.mean(hist)
-                            std_ic = np.std(hist)
-                            irs[m] = mean_ic / (std_ic + 1e-8)
-                        elif len(hist) > 0:
-                            irs[m] = np.mean(hist) / 1e-8  # 只有1天数据，IR极大
-                        else:
-                            irs[m] = -np.inf
-                    
-                    if irs:
-                        best_model = max(irs, key=irs.get)
-                        best_ir = irs[best_model]
-                        
-                        # 计算当前模型的 IR
-                        current_hist = self.dynamic_ic_history.get(self.dynamic_ir_current_model, [])
-                        if len(current_hist) >= 2:
-                            current_ir = np.mean(current_hist) / (np.std(current_hist) + 1e-8)
-                        elif len(current_hist) > 0:
-                            current_ir = np.mean(current_hist) / 1e-8
-                        else:
-                            current_ir = -np.inf
-                            
-                        b_ir = getattr(self.cfg, 'DYNAMIC_SWITCH_IR_B', 1.00)
-                        if best_ir > b_ir * current_ir and best_model != self.dynamic_ir_current_model:
-                            logger.info(f"🔄 DynamicSwitch_IR 切换模型: {self.dynamic_ir_current_model} -> {best_model} (IR: {current_ir:.4f} -> {best_ir:.4f})")
-                            self.dynamic_ir_current_model = best_model
-
-                # 🔑 新增：DynamicSwitch2_IR 权重计算逻辑 (基于 IR 加权)
-                if 'DynamicSwitch2_IR' in self.cfg.MODELS:
-                    irs_2 = {}
-                    base_models_2 = getattr(self.cfg, 'DYNAMIC_SWITCH2_IR_BASE_MODELS', [])
-                    for m in base_models_2:
+                    base_models_ir = getattr(self.cfg, 'DYNAMIC_SWITCH_IR_BASE_MODELS', [])
+                    for m in base_models_ir:
                         if m in self.dynamic_ic_history:
                             hist = self.dynamic_ic_history[m]
                             if len(hist) >= 2:
-                                irs_2[m] = np.mean(hist) / (np.std(hist) + 1e-8)
+                                mean_ic = np.mean(hist)
+                                # 🔑 核心修复：对标准差设置下限 (1e-3)，防止 IR 爆炸到百万级别
+                                std_ic = max(np.std(hist), 1e-3) 
+                                irs[m] = mean_ic / std_ic
                             elif len(hist) > 0:
-                                irs_2[m] = np.mean(hist) / 1e-8
+                                irs[m] = np.mean(hist) / 1e-3
                             else:
-                                irs_2[m] = -np.inf
+                                irs[m] = -np.inf # 无数据时给予极小值
                     
-                    if irs_2:
-                        # 平移归一化，确保权重为正
-                        min_ir = min(irs_2.values())
-                        if min_ir <= 0:
-                            irs_2 = {k: v - min_ir + 1e-5 for k, v in irs_2.items()}
+                    if irs:
+                        # 🔑 核心修复：过滤掉 -inf 和 nan，只比较有效 IR
+                        valid_irs = {k: v for k, v in irs.items() if np.isfinite(v)}
+                        if valid_irs:
+                            best_model = max(valid_irs, key=valid_irs.get)
+                            best_ir = valid_irs[best_model]
+                            
+                            current_hist = self.dynamic_ic_history.get(self.dynamic_ir_current_model, [])
+                            if len(current_hist) >= 2:
+                                current_ir = np.mean(current_hist) / max(np.std(current_hist), 1e-3)
+                            elif len(current_hist) > 0:
+                                current_ir = np.mean(current_hist) / 1e-3
+                            else:
+                                current_ir = -np.inf
+                                
+                            b_ir = getattr(self.cfg, 'DYNAMIC_SWITCH_IR_B', 1.00)
+                            # 只有当当前模型也有有效 IR 时才进行比较
+                            if np.isfinite(current_ir) and best_ir > b_ir * current_ir and best_model != self.dynamic_ir_current_model:
+                                logger.info(f"🔄 DynamicSwitch_IR 切换模型: {self.dynamic_ir_current_model} -> {best_model} (IR: {current_ir:.4f} -> {best_ir:.4f})")
+                                self.dynamic_ir_current_model = best_model
+
+                # 🔑 修复版：DynamicSwitch2_IR 权重计算逻辑 (基于 IR 加权)
+                if 'DynamicSwitch2_IR' in self.cfg.MODELS:
+                    valid_irs_2 = {}
+                    base_models_2_ir = getattr(self.cfg, 'DYNAMIC_SWITCH2_IR_BASE_MODELS', [])
+                    for m in base_models_2_ir:
+                        if m in self.dynamic_ic_history:
+                            hist = self.dynamic_ic_history[m]
+                            if len(hist) >= 2:
+                                mean_ic = np.mean(hist)
+                                std_ic = max(np.std(hist), 1e-3) # 🔑 防止 IR 爆炸
+                                valid_irs_2[m] = mean_ic / std_ic
+                            elif len(hist) > 0:
+                                valid_irs_2[m] = np.mean(hist) / 1e-3
+                    
+                    # 🔑 核心修复：彻底抛弃 -np.inf，只对有效 IR 进行归一化
+                    if valid_irs_2:
+                        # 过滤掉可能存在的 nan
+                        valid_irs_2 = {k: v for k, v in valid_irs_2.items() if np.isfinite(v)}
+                        
+                        if valid_irs_2:
+                            min_ir = min(valid_irs_2.values())
+                            # 平移归一化
+                            shifted_irs = {k: v - min_ir + 1e-5 for k, v in valid_irs_2.items()}
+                            total_ir = sum(shifted_irs.values())
+                            
+                            # 生成最终权重字典 (包含所有基础模型，无数据的权重为 0)
+                            self.dynamic_switch2_ir_weights = {m: 0.0 for m in base_models_2_ir}
+                            for k, v in shifted_irs.items():
+                                self.dynamic_switch2_ir_weights[k] = v / total_ir
+                                
+                            self.dynamic_switch2_ir_valid_models = list(valid_irs_2.keys())
+                            
+                            # 打印权重日志 (只打印权重 > 0 的模型，避免刷屏)
+                            weight_log = {m: f"{w:.3f}" for m, w in self.dynamic_switch2_ir_weights.items() if w > 1e-6}
+                            logger.info(f"⚖️ DynamicSwitch2_IR 更新权重 (基于IR): {weight_log}")
                         else:
-                            irs_2 = {k: v + 1e-5 for k, v in irs_2.items()}
-                        
-                        total_ir = sum(irs_2.values())
-                        self.dynamic_switch2_ir_weights = {k: v / total_ir for k, v in irs_2.items()}
-                        self.dynamic_switch2_ir_valid_models = list(irs_2.keys())
-                        
-                        # 打印权重日志
-                        weight_log = {m: f"{w:.3f}" for m, w in self.dynamic_switch2_ir_weights.items()}
-                        logger.info(f"⚖️ DynamicSwitch2_IR 更新权重 (基于IR): {weight_log}")
+                            self.dynamic_switch2_ir_weights = None
                     else:
                         self.dynamic_switch2_ir_weights = None
 

@@ -203,11 +203,29 @@ def main(start_date='2026-04-01', rebalancing_weekday = None, use_trade_pool=Fal
     cfg.SENSITIVE_SWITCH_BASE_MODELS = tree_models
     logging.info(f"🔄 动态更新路由配置 | 参与竞争的树模型数: {len(tree_models)}")
 
+    # # 🔑 3. 加载专属特征配置 (供引擎内部按模型名称路由)
+    # if hasattr(cfg, 'ABLATION_FEATURE_JSON') and os.path.exists(cfg.ABLATION_FEATURE_JSON):
+    #     with open(cfg.ABLATION_FEATURE_JSON, 'r', encoding='utf-8') as f:
+    #         cfg.FEATURE_SELECTED = json.load(f)
+    #     logging.info(f"✅ 专属特征配置加载完成 | 覆盖模型数: {len(cfg.FEATURE_SELECTED)}")
+    # else:
+    #     cfg.FEATURE_SELECTED = {}
     # 🔑 3. 加载专属特征配置 (供引擎内部按模型名称路由)
     if hasattr(cfg, 'ABLATION_FEATURE_JSON') and os.path.exists(cfg.ABLATION_FEATURE_JSON):
         with open(cfg.ABLATION_FEATURE_JSON, 'r', encoding='utf-8') as f:
-            cfg.FEATURE_SELECTED = json.load(f)
-        logging.info(f"✅ 专属特征配置加载完成 | 覆盖模型数: {len(cfg.FEATURE_SELECTED)}")
+            raw_ablation_features = json.load(f)
+        
+        # 🔑 核心修复：过滤缺失的消融模型，并为 key 加上 _ablation 后缀以匹配 trainers
+        cfg.FEATURE_SELECTED = {}
+        skipped_count = 0
+        for model_name, feats in raw_ablation_features.items():
+            abl_model_name = f"{model_name}_ablation"
+            if abl_model_name in trainers:
+                cfg.FEATURE_SELECTED[abl_model_name] = feats
+            else:
+                skipped_count += 1
+                
+        logging.info(f"✅ 专属特征配置加载完成 | 有效消融模型数: {len(cfg.FEATURE_SELECTED)} | 自动跳过缺失模型: {skipped_count} 个")
     else:
         cfg.FEATURE_SELECTED = {}
 

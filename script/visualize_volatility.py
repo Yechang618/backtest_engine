@@ -55,7 +55,7 @@ def main():
         logging.info(f"  ✅ 曲线已保存: volatility_curve_{sw_code}.png")
         
         # 2. 计算百分位 (10%, 20%, ..., 90%)
-        percentiles = [10, 20, 30, 40, 50, 60, 70, 80, 90]
+        percentiles = [10, 20, 30, 33, 40, 50, 60, 67, 70, 80, 90]
         p_values = np.percentile(df['VOLATILITY'].dropna(), percentiles).tolist()
         
         percentiles_result[sw_code] = {

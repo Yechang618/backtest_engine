@@ -48,66 +48,131 @@ def load_and_preprocess_data(out_dir, model_type='LightGBM'):
     
     return shap_dfs, ic_df
 
+# def plot_visualizations(shap_dfs, ic_df, fig_dir, model_type='LightGBM'):
+#     """针对每个模型生成 3 张核心图表"""
+#     os.makedirs(fig_dir, exist_ok=True)
+#     for model, shap_df in shap_dfs.items():
+#         print(f"\n🎨 正在为模型 [{model}] 生成可视化图表...")
+#         mean_shap = shap_df.mean(axis=0).sort_values(ascending=False)
+#         top10_shap_feats = mean_shap.head(10).index.tolist()
+        
+#         # 图 1: Top 10 SHAP 时序
+#         plt.figure(figsize=(14, 7))
+#         for feat in top10_shap_feats:
+#             plt.plot(shap_df.index, shap_df[feat], marker='o', markersize=4, lw=1.5, label=feat)
+#         plt.title(f'{model} - Top 10 Features by Mean SHAP Value', fontsize=14)
+#         plt.xlabel('Quarter'); plt.ylabel('Mean Absolute SHAP Value', fontsize=12)
+#         plt.xticks(rotation=45, ha='right'); plt.grid(True, linestyle='--', alpha=0.6)
+#         plt.legend(bbox_to_anchor=(1.02, 1), loc='upper left', fontsize='small', frameon=False)
+#         plt.tight_layout()
+#         plt.savefig(os.path.join(fig_dir, f'shap_top10_trend_{model}.png'), dpi=150, bbox_inches='tight')
+#         plt.close()
+        
+#         # 图 2: Top 10 IC 时序
+#         mean_ic_abs = ic_df.mean(axis=0).abs().sort_values(ascending=False)
+#         top10_ic_feats = mean_ic_abs.head(10).index.tolist()
+#         plt.figure(figsize=(14, 7))
+#         for feat in top10_ic_feats:
+#             plt.plot(ic_df.index, ic_df[feat], marker='s', markersize=4, lw=1.5, label=feat)
+#         plt.title(f'{model} - Top 10 Features by Mean IC Value', fontsize=14)
+#         plt.xlabel('Quarter'); plt.ylabel('Mean IC', fontsize=12)
+#         plt.axhline(0, color='black', linestyle='--', lw=0.8, alpha=0.5)
+#         plt.xticks(rotation=45, ha='right'); plt.grid(True, linestyle='--', alpha=0.6)
+#         plt.legend(bbox_to_anchor=(1.02, 1), loc='upper left', fontsize='small', frameon=False)
+#         plt.tight_layout()
+#         plt.savefig(os.path.join(fig_dir, f'ic_top10_trend_{model}.png'), dpi=150, bbox_inches='tight')
+#         plt.close()
+        
+#         # 图 3: SHAP 贡献度条形图
+#         top15_shap_feats = mean_shap.head(15).index.tolist()
+#         vals = mean_shap[top15_shap_feats].sort_values(ascending=True) 
+#         plt.figure(figsize=(10, 8))
+#         bars = plt.barh(vals.index, vals.values, color='teal', edgecolor='black', alpha=0.85)
+#         for bar in bars:
+#             plt.text(bar.get_width() + 0.0005, bar.get_y() + bar.get_height()/2, f'{bar.get_width():.4f}', va='center', fontsize=9)
+#         plt.title(f'{model} - Feature Contribution (Top 15)', fontsize=14)
+#         plt.xlabel('Mean Absolute SHAP Value'); plt.ylabel('Feature Name')
+#         plt.grid(True, axis='x', linestyle='--', alpha=0.6)
+#         plt.tight_layout()
+#         plt.savefig(os.path.join(fig_dir, f'shap_contribution_bar_{model}.png'), dpi=150, bbox_inches='tight')
+#         plt.close()
 def plot_visualizations(shap_dfs, ic_df, fig_dir, model_type='LightGBM'):
     """针对每个模型生成 3 张核心图表"""
     os.makedirs(fig_dir, exist_ok=True)
+    
     for model, shap_df in shap_dfs.items():
-        print(f"\n🎨 正在为模型 [{model}] 生成可视化图表...")
+        # 🔑 修复：如果模型名是 'Default'，则使用传入的 model_type 作为显示名称
+        display_name = model_type if model == 'Default' else model
+        print(f"\n🎨 正在为模型 [{display_name}] 生成可视化图表...")
+        
         mean_shap = shap_df.mean(axis=0).sort_values(ascending=False)
         top10_shap_feats = mean_shap.head(10).index.tolist()
         
+        # ==========================================
         # 图 1: Top 10 SHAP 时序
+        # ==========================================
         plt.figure(figsize=(14, 7))
         for feat in top10_shap_feats:
             plt.plot(shap_df.index, shap_df[feat], marker='o', markersize=4, lw=1.5, label=feat)
-        plt.title(f'{model} - Top 10 Features by Mean SHAP Value', fontsize=14)
-        plt.xlabel('Quarter'); plt.ylabel('Mean Absolute SHAP Value', fontsize=12)
-        plt.xticks(rotation=45, ha='right'); plt.grid(True, linestyle='--', alpha=0.6)
-        plt.legend(bbox_to_anchor=(1.02, 1), loc='upper left', fontsize='small', frameon=False)
-        plt.tight_layout()
-        plt.savefig(os.path.join(fig_dir, f'shap_top10_trend_{model}.png'), dpi=150, bbox_inches='tight')
+        plt.title(f'{display_name} - Top 10 Features by Mean SHAP Value', fontsize=14)
+        plt.xlabel('Quarter', fontsize=12)
+        plt.ylabel('Mean Absolute SHAP Value', fontsize=12)
+        plt.xticks(rotation=45, ha='right')
+        plt.grid(True, linestyle='--', alpha=0.6)
+        # 🔑 修复：将图例放在内部左上角，避免 tight_layout 冲突
+        plt.legend(loc='upper left', fontsize='small', frameon=False)
+        plt.savefig(os.path.join(fig_dir, f'shap_top10_trend_{display_name}.png'), dpi=150, bbox_inches='tight')
         plt.close()
         
+        # ==========================================
         # 图 2: Top 10 IC 时序
+        # ==========================================
         mean_ic_abs = ic_df.mean(axis=0).abs().sort_values(ascending=False)
         top10_ic_feats = mean_ic_abs.head(10).index.tolist()
         plt.figure(figsize=(14, 7))
         for feat in top10_ic_feats:
             plt.plot(ic_df.index, ic_df[feat], marker='s', markersize=4, lw=1.5, label=feat)
-        plt.title(f'{model} - Top 10 Features by Mean IC Value', fontsize=14)
-        plt.xlabel('Quarter'); plt.ylabel('Mean IC', fontsize=12)
+        plt.title(f'{display_name} - Top 10 Features by Mean IC Value', fontsize=14)
+        plt.xlabel('Quarter', fontsize=12)
+        plt.ylabel('Mean IC', fontsize=12)
         plt.axhline(0, color='black', linestyle='--', lw=0.8, alpha=0.5)
-        plt.xticks(rotation=45, ha='right'); plt.grid(True, linestyle='--', alpha=0.6)
-        plt.legend(bbox_to_anchor=(1.02, 1), loc='upper left', fontsize='small', frameon=False)
-        plt.tight_layout()
-        plt.savefig(os.path.join(fig_dir, f'ic_top10_trend_{model}.png'), dpi=150, bbox_inches='tight')
+        plt.xticks(rotation=45, ha='right')
+        plt.grid(True, linestyle='--', alpha=0.6)
+        plt.legend(loc='upper left', fontsize='small', frameon=False)
+        plt.savefig(os.path.join(fig_dir, f'ic_top10_trend_{display_name}.png'), dpi=150, bbox_inches='tight')
         plt.close()
         
+        # ==========================================
         # 图 3: SHAP 贡献度条形图
+        # ==========================================
         top15_shap_feats = mean_shap.head(15).index.tolist()
         vals = mean_shap[top15_shap_feats].sort_values(ascending=True) 
         plt.figure(figsize=(10, 8))
         bars = plt.barh(vals.index, vals.values, color='teal', edgecolor='black', alpha=0.85)
         for bar in bars:
             plt.text(bar.get_width() + 0.0005, bar.get_y() + bar.get_height()/2, f'{bar.get_width():.4f}', va='center', fontsize=9)
-        plt.title(f'{model} - Feature Contribution (Top 15)', fontsize=14)
-        plt.xlabel('Mean Absolute SHAP Value'); plt.ylabel('Feature Name')
+        plt.title(f'{display_name} - Feature Contribution (Top 15)', fontsize=14)
+        plt.xlabel('Mean Absolute SHAP Value', fontsize=12)
+        plt.ylabel('Feature Name', fontsize=12)
         plt.grid(True, axis='x', linestyle='--', alpha=0.6)
-        plt.tight_layout()
-        plt.savefig(os.path.join(fig_dir, f'shap_contribution_bar_{model}.png'), dpi=150, bbox_inches='tight')
+        plt.savefig(os.path.join(fig_dir, f'shap_contribution_bar_{display_name}.png'), dpi=150, bbox_inches='tight')
         plt.close()
-
+        
 def main():
     cfg = Config()
     out_dir = cfg.OUT_DIR
     fig_dir = out_dir / "figures"
     
     # 🔑 核心修改：定义所有需要提取消融特征的模型列表
+    # model_types = [
+    #     'LGBM-22', 'LGBM-23', 'LGBM-24', 'XGB-22', 'XGB-23', 'XGB-24',
+    #     'LGBM-low', 'LGBM-mid', 'LGBM-high', 'XGB-low', 'XGB-mid', 'XGB-high'
+    # ]
     model_types = [
         'LGBM-22', 'LGBM-23', 'LGBM-24', 'XGB-22', 'XGB-23', 'XGB-24',
-        'LGBM-low', 'LGBM-mid', 'LGBM-high', 'XGB-low', 'XGB-mid', 'XGB-high'
+        'LGBM-low', 'LGBM-mid', 'LGBM-high', 'XGB-low', 'XGB-mid', 'XGB-high',
+        'LGBM-wLow', 'LGBM-wMid', 'LGBM-wHigh', 'XGB-wLow', 'XGB-wMid', 'XGB-wHigh' # 🔑 新增
     ]
-    
     ablation_features = {}
     
     print("📦 开始遍历模型，提取消融特征并生成可视化图表...")
