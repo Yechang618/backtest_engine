@@ -4,7 +4,7 @@ from pathlib import Path
 
 class Config:
     # 📂 数据路径 (只读)
-    Date = "20260915"
+    Date = "20260929"
     # DATA_RAW_ROOT, DATA_ROOT = r"C:\Users\yecha\workspace\data", r"C:\Users\yecha\workspace\data"
     DATA_RAW_ROOT, DATA_ROOT = "/data/data_process/5.27_update/rebuild", "/data/data_process/5.27_update/rebuild/model_training_step15_selected_panel"
     
@@ -73,7 +73,6 @@ class Config:
         'XGB-wLow', 'XGB-wMid', 'XGB-wHigh',  # 🔑 新增周度波动率模型
         'LGBM-wLow', 'LGBM-wMid', 'LGBM-wHigh', # 🔑 新增周度波动率模型
         'OptSharpe', 'DynamicSwitch', 'DynamicSwitch2',
-        'DynamicSwitch_IR', 'DynamicSwitch2_IR',
         'DynamicSwitch_IR', 'DynamicSwitch2_IR',  # 🔑 新增
         'ClusterRegime',  # 🔑 新增
         'SensitiveSwitch', 
@@ -94,8 +93,6 @@ class Config:
         'LGBM-22_ablation', 'LGBM-23_ablation', 'LGBM-24_ablation',
         # 'XGB-low_ablation', 'XGB-mid_ablation', 'XGB-high_ablatioln',
         # 'LGBM-low_ablation', 'LGBM-mid_ablation', 'LGBM-high_abation'  
-        'XGB-low_ablation', 'XGB-mid_ablation', 'XGB-high_ablation',
-        'LGBM-low_ablation', 'LGBM-mid_ablation', 'LGBM-high_ablation'  
         'LGBM_c1', 'LGBM_c2', 'LGBM_c3',  # 🔑 新增
         'XGB_c1', 'XGB_c2', 'XGB_c3'      # 🔑 新增
     ]  
