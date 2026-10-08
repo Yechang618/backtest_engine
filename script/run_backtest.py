@@ -183,6 +183,9 @@ def main(start_date='2026-04-01', rebalancing_weekday = None, use_trade_pool=Fal
     # 加载消融模型
     if os.path.exists(os.path.join(model_dir, "ablation_sklearn_models.pkl")):
         trainers.update(joblib.load(os.path.join(model_dir, "ablation_sklearn_models.pkl")))
+    # 加载 Cluster 模型
+    if os.path.exists(os.path.join(model_dir, "cluster_sklearn_models.pkl")):
+        trainers.update(joblib.load(os.path.join(model_dir, "cluster_sklearn_models.pkl")))
         
     if not trainers:
         raise RuntimeError("未加载到任何模型，请先运行训练脚本")
