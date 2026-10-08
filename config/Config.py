@@ -4,7 +4,7 @@ from pathlib import Path
 
 class Config:
     # 📂 数据路径 (只读)
-    Date = "20260929"
+    Date = "20260930"
     # DATA_RAW_ROOT, DATA_ROOT = r"C:\Users\yecha\workspace\data", r"C:\Users\yecha\workspace\data"
     DATA_RAW_ROOT, DATA_ROOT = "/data/data_process/5.27_update/rebuild", "/data/data_process/5.27_update/rebuild/model_training_step15_selected_panel"
     
@@ -94,7 +94,9 @@ class Config:
         # 'XGB-low_ablation', 'XGB-mid_ablation', 'XGB-high_ablatioln',
         # 'LGBM-low_ablation', 'LGBM-mid_ablation', 'LGBM-high_abation'  
         'LGBM_c1', 'LGBM_c2', 'LGBM_c3',  # 🔑 新增
+        'LGBM_c4', 'LGBM_c5', 'LGBM_c6',  # 🔑 新增
         'XGB_c1', 'XGB_c2', 'XGB_c3'      # 🔑 新增
+        'XGB_c4', 'XGB_c5', 'XGB_c6'      # 🔑 新增
     ]  
     DYNAMIC_SWITCH_B = 1.00  
 

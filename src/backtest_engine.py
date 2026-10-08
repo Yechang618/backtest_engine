@@ -7,6 +7,7 @@ import logging
 import os
 from .backtest_core import PortfolioManager
 import joblib
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -87,59 +88,72 @@ class BacktestEngine:
             self.cluster_pipeline = joblib.load(config.CLUSTER_MODEL_PKL)
             logging.info("✅ 成功加载市场状态聚类模型 (KMeans)")
             
-        self.current_cluster_id = 0  # 默认 Cluster 0
+        # self.current_cluster_id = 0  # 默认 Cluster 0
+        # self.last_processed_month = None
+        # self.monthly_buffer = []    # 用于缓存当月每日数据以计算月度特征
+
+        # 🔑 新增：加载市场状态聚类标签 (直接查表，无需实时计算)
+        self.current_cluster_id = 0
         self.last_processed_month = None
-        self.monthly_buffer = []    # 用于缓存当月每日数据以计算月度特征
-
-    def _compute_monthly_features(self, buffer_dfs: list) -> np.ndarray:
-        """利用缓存的每日数据计算全市场宏观特征"""
-        if not buffer_dfs or self.cluster_pipeline is None:
-            return None
-            
-        df_month = pd.concat(buffer_dfs)
-        if 'daily_ret' not in df_month.columns:
-            df_month['daily_ret'] = df_month.groupby('S_INFO_WINDCODE')['S_DQ_ADJCLOSE'].pct_change()
-            
-        # 1. Volatility
-        vol = df_month.groupby('S_INFO_WINDCODE')['daily_ret'].std().mean()
-        # 2. Turnover
-        if 'S_DQ_CAPITAL' in df_month.columns:
-            turnover = (df_month['S_DQ_VOLUME'] / df_month['S_DQ_CAPITAL']).mean()
-        else:
-            turnover = 0.0
-        # 3. Amount & 4. MCap (这里简化为当月总和，环比需要历史数据，此处用对数代替以保持一致性)
-        amount = np.log1p(df_month['S_DQ_AMOUNT'].sum()) if 'S_DQ_AMOUNT' in df_month.columns else 0.0
-        if 'S_DQ_CAPITAL' in df_month.columns:
-            mcap = np.log1p((df_month['S_DQ_CLOSE'] * df_month['S_DQ_CAPITAL']).sum())
-        else:
-            mcap = 0.0
-
-        # 注意：训练时使用的是 amount_ret 和 mcap_ret。为了在回测中实时计算，
-        # 我们维护一个全局的 last_amount 和 last_mcap 来计算环比。
-        # (为简化代码，此处假设引擎中已有 self.last_month_amount 等变量，或在初始化时从历史数据预热)
-        # 这里提供一个简化的 fallback：直接使用对数值，因为 Scaler 会处理分布。
-        # 严格对齐训练集的话，需要在引擎外部预先计算好每月的 ret 并传入。
-        # 此处为了代码可运行，使用 log(amount) 和 log(mcap) 作为近似。
+        self.month_to_cluster = {}
         
-        cols = self.cluster_pipeline['cols']
-        features = np.array([[vol, turnover, amount, mcap]])
+        labels_path = getattr(config, 'MARKET_REGIME_LABELS', None)
+        if labels_path and os.path.exists(labels_path):
+            with open(labels_path, 'r', encoding='utf-8') as f:
+                self.month_to_cluster = json.load(f)
+            logging.info(f"✅ 成功加载市场状态标签 | 覆盖月份数: {len(self.month_to_cluster)}")
+        else:
+            logging.warning("⚠️ 未找到 market_regime_labels.json，ClusterRegime 策略将默认使用 Cluster 0")
+
+    # def _compute_monthly_features(self, buffer_dfs: list) -> np.ndarray:
+    #     """利用缓存的每日数据计算全市场宏观特征"""
+    #     if not buffer_dfs or self.cluster_pipeline is None:
+    #         return None
+            
+    #     df_month = pd.concat(buffer_dfs)
+    #     if 'daily_ret' not in df_month.columns:
+    #         df_month['daily_ret'] = df_month.groupby('S_INFO_WINDCODE')['S_DQ_ADJCLOSE'].pct_change()
+            
+    #     # 1. Volatility
+    #     vol = df_month.groupby('S_INFO_WINDCODE')['daily_ret'].std().mean()
+    #     # 2. Turnover
+    #     if 'S_DQ_CAPITAL' in df_month.columns:
+    #         turnover = (df_month['S_DQ_VOLUME'] / df_month['S_DQ_CAPITAL']).mean()
+    #     else:
+    #         turnover = 0.0
+    #     # 3. Amount & 4. MCap (这里简化为当月总和，环比需要历史数据，此处用对数代替以保持一致性)
+    #     amount = np.log1p(df_month['S_DQ_AMOUNT'].sum()) if 'S_DQ_AMOUNT' in df_month.columns else 0.0
+    #     if 'S_DQ_CAPITAL' in df_month.columns:
+    #         mcap = np.log1p((df_month['S_DQ_CLOSE'] * df_month['S_DQ_CAPITAL']).sum())
+    #     else:
+    #         mcap = 0.0
+
+    #     # 注意：训练时使用的是 amount_ret 和 mcap_ret。为了在回测中实时计算，
+    #     # 我们维护一个全局的 last_amount 和 last_mcap 来计算环比。
+    #     # (为简化代码，此处假设引擎中已有 self.last_month_amount 等变量，或在初始化时从历史数据预热)
+    #     # 这里提供一个简化的 fallback：直接使用对数值，因为 Scaler 会处理分布。
+    #     # 严格对齐训练集的话，需要在引擎外部预先计算好每月的 ret 并传入。
+    #     # 此处为了代码可运行，使用 log(amount) 和 log(mcap) 作为近似。
         
-        # 如果训练时用的是 ret，这里需要做差分。
-        # 为了严谨，我们修改 _compute_monthly_features 以支持差分：
-        if 'amount_ret' in cols:
-            current_amount = df_month['S_DQ_AMOUNT'].sum() if 'S_DQ_AMOUNT' in df_month.columns else 0
-            amount_ret = (current_amount / self.last_month_amount - 1) if self.last_month_amount > 0 else 0
-            self.last_month_amount = current_amount
-            features[0, cols.index('amount_ret')] = amount_ret
+    #     cols = self.cluster_pipeline['cols']
+    #     features = np.array([[vol, turnover, amount, mcap]])
+        
+    #     # 如果训练时用的是 ret，这里需要做差分。
+    #     # 为了严谨，我们修改 _compute_monthly_features 以支持差分：
+    #     if 'amount_ret' in cols:
+    #         current_amount = df_month['S_DQ_AMOUNT'].sum() if 'S_DQ_AMOUNT' in df_month.columns else 0
+    #         amount_ret = (current_amount / self.last_month_amount - 1) if self.last_month_amount > 0 else 0
+    #         self.last_month_amount = current_amount
+    #         features[0, cols.index('amount_ret')] = amount_ret
             
-        if 'mcap_ret' in cols:
-            last_date = df_month['TRADE_DT'].max()
-            current_mcap = (df_month[df_month['TRADE_DT'] == last_date]['S_DQ_CLOSE'] * df_month[df_month['TRADE_DT'] == last_date]['S_DQ_CAPITAL']).sum()
-            mcap_ret = (current_mcap / self.last_month_mcap - 1) if self.last_month_mcap > 0 else 0
-            self.last_month_mcap = current_mcap
-            features[0, cols.index('mcap_ret')] = mcap_ret
+    #     if 'mcap_ret' in cols:
+    #         last_date = df_month['TRADE_DT'].max()
+    #         current_mcap = (df_month[df_month['TRADE_DT'] == last_date]['S_DQ_CLOSE'] * df_month[df_month['TRADE_DT'] == last_date]['S_DQ_CAPITAL']).sum()
+    #         mcap_ret = (current_mcap / self.last_month_mcap - 1) if self.last_month_mcap > 0 else 0
+    #         self.last_month_mcap = current_mcap
+    #         features[0, cols.index('mcap_ret')] = mcap_ret
             
-        return features
+    #     return features
 
     def _get_features_for_model(self, model_name: str) -> List[str]:
         """🔑 特征路由：优先使用专属特征集（支持 _ablation 后缀），否则回退到默认逻辑"""
@@ -307,19 +321,32 @@ class BacktestEngine:
 
             # 🔑 跨月检测：计算上月特征并预测当前 Cluster
             current_month = date.strftime('%Y-%m')
-            if self.cluster_pipeline is not None and current_month != self.last_processed_month:
-                if self.last_processed_month is not None and len(self.monthly_buffer) > 0:
-                    features = self._compute_monthly_features(self.monthly_buffer)
-                    if features is not None:
-                        scaled_feats = self.cluster_pipeline['scaler'].transform(features)
-                        self.current_cluster_id = self.cluster_pipeline['kmeans'].predict(scaled_feats)[0]
-                        logger.info(f"🔄 市场状态切换 | 月份: {self.last_processed_month} -> Cluster {self.current_cluster_id}")
-                
+            
+            # 🔑 跨月检测：直接从 JSON 标签中获取当月的 Cluster ID
+            if current_month != self.last_processed_month:
                 self.last_processed_month = current_month
-                self.monthly_buffer = []
+                if current_month in self.month_to_cluster:
+                    new_cluster = self.month_to_cluster[current_month]
+                    if new_cluster != self.current_cluster_id:
+                        self.current_cluster_id = new_cluster
+                        logger.info(f"🔄 市场状态更新 | 月份: {current_month} -> Cluster {self.current_cluster_id}")
+                else:
+                    logger.warning(f"⚠️ 月份 {current_month} 无聚类标签，保持 Cluster {self.current_cluster_id}")
+
+            # current_month = date.strftime('%Y-%m')
+            # if self.cluster_pipeline is not None and current_month != self.last_processed_month:
+            #     if self.last_processed_month is not None and len(self.monthly_buffer) > 0:
+            #         features = self._compute_monthly_features(self.monthly_buffer)
+            #         if features is not None:
+            #             scaled_feats = self.cluster_pipeline['scaler'].transform(features)
+            #             self.current_cluster_id = self.cluster_pipeline['kmeans'].predict(scaled_feats)[0]
+            #             logger.info(f"🔄 市场状态切换 | 月份: {self.last_processed_month} -> Cluster {self.current_cluster_id}")
+                
+            #     self.last_processed_month = current_month
+            #     self.monthly_buffer = []
                 
             # 将当日数据加入 buffer (保留原始列用于计算)
-            self.monthly_buffer.append(daily.reset_index())
+            # self.monthly_buffer.append(daily.reset_index())
             
             for code in daily.index:
                 price = price_dict[code]

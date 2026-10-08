@@ -52,16 +52,26 @@ def main(n_clusters=3):
     setup_logging()
     cfg = Config()
     
-    logging.info("📦 加载全量面板数据 (2015-06 至 2026-03)...")
-    df = load_panel_data(None, cfg.DATA_DIR, list(range(2016, 2027)), file_prefix="train", load_train=True, load_test=True, exclude_bj=cfg.EXCLUDE_BJ)
-    df = compute_real_returns(cfg.RAW_PANEL, df, i=cfg.REBALANCE_DAYS)
-    df = compute_derived_factors(df, price_col='S_DQ_ADJCLOSE')
+    # 🔑 核心修复：直接从 RAW_PANEL 读取所需列，避免因子面板中缺失原始量价字段导致全 NaN
+    logging.info("📦 加载原始行情数据 (RAW_PANEL) 用于计算宏观特征...")
+    required_cols = ['S_INFO_WINDCODE', 'TRADE_DT', 'S_DQ_ADJCLOSE', 'S_DQ_CLOSE', 
+                     'S_DQ_VOLUME', 'S_DQ_AMOUNT', 'S_DQ_CAPITAL']
+    
+    try:
+        df = pd.read_parquet(cfg.RAW_PANEL, columns=required_cols)
+    except Exception as e:
+        logging.error(f"❌ 读取 RAW_PANEL 失败: {e}")
+        return
+        
+    df['TRADE_DT'] = pd.to_datetime(df['TRADE_DT'].astype(str), format='%Y%m%d')
     
     # 限制全局时间范围
     df = df[(df['TRADE_DT'] >= pd.to_datetime('2015-06-01')) & (df['TRADE_DT'] <= pd.to_datetime('2026-03-31'))].copy()
     df['YEAR_MONTH'] = df['TRADE_DT'].dt.strftime('%Y-%m')
     
+    logging.info(f"✅ 原始行情数据加载完成 | 形状: {df.shape}")
     logging.info("🧮 开始计算月度全市场宏观特征...")
+
     monthly_features = []
     for ym, group in df.groupby('YEAR_MONTH'):
         feats = compute_monthly_market_features(group)
@@ -69,14 +79,25 @@ def main(n_clusters=3):
         monthly_features.append(feats)
         
     df_market = pd.DataFrame(monthly_features).sort_values('YEAR_MONTH').reset_index(drop=True)
-    
+
     # 计算环比增长率 (去除趋势影响，使聚类更关注市场状态的变化)
     df_market['amount_ret'] = df_market['amount'].pct_change()
     df_market['mcap_ret'] = df_market['mcap'].pct_change()
     
+    # 🔑 核心修复：将 inf 和 -inf 替换为 NaN，防止 pct_change 或极端异常值导致 StandardScaler 崩溃
+    df_market.replace([np.inf, -np.inf], np.nan, inplace=True)
+    
     # 聚类使用的4个核心特征
     cluster_cols = ['vol', 'turnover', 'amount_ret', 'mcap_ret']
     df_market_clean = df_market.dropna(subset=cluster_cols).reset_index(drop=True)
+
+    # # 计算环比增长率 (去除趋势影响，使聚类更关注市场状态的变化)
+    # df_market['amount_ret'] = df_market['amount'].pct_change()
+    # df_market['mcap_ret'] = df_market['mcap'].pct_change()
+    
+    # # 聚类使用的4个核心特征
+    # cluster_cols = ['vol', 'turnover', 'amount_ret', 'mcap_ret']
+    # df_market_clean = df_market.dropna(subset=cluster_cols).reset_index(drop=True)
     
     # 划分训练期与验证期
     train_mask = df_market_clean['YEAR_MONTH'] <= '2024-12'
