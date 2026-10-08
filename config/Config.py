@@ -39,6 +39,30 @@ class Config:
     SLIPPAGE = 0.000
     STAMP_TAX_RATE = 0.0000
 
+    # 🔑 新增：聚类模型与标签路径
+    CLUSTER_MODEL_PKL = MODEL_DIR / "cluster_model.pkl"
+    MARKET_REGIME_LABELS = OUT_DIR / "market_regime_labels.json"
+
+    # # 🤖 模型配置 ✅ 新增 ClusterRegime
+    # MODELS = [
+    #     'ElasticNet', 
+    #     'XGB-22', 'XGB-23', 'XGB-24', 
+    #     'LGBM-22', 'LGBM-23', 'LGBM-24', 
+    #     'OptSharpe', 'DynamicSwitch', 'DynamicSwitch2',
+    #     'DynamicSwitch_IR', 'DynamicSwitch2_IR',
+    #     'SensitiveSwitch', 'ClusterRegime',  # 🔑 新增
+    #     'BuyAndHoldAll'
+    # ]    
+
+    # # 🔄 动态切换策略配置 ✅ 将 Cluster 模型加入竞争池
+    # DYNAMIC_SWITCH_BASE_MODELS = [
+    #     'ElasticNet', 'OptSharpe', 
+    #     'XGB-22', 'XGB-23', 'XGB-24', 
+    #     'LGBM-22', 'LGBM-23', 'LGBM-24',
+    #     'LGBM_c1', 'LGBM_c2', 'LGBM_c3',  # 🔑 新增
+    #     'XGB_c1', 'XGB_c2', 'XGB_c3'      # 🔑 新增
+    # ]  
+
     # 🤖 模型配置
     MODELS = [
         'ElasticNet', 
@@ -50,6 +74,8 @@ class Config:
         'LGBM-wLow', 'LGBM-wMid', 'LGBM-wHigh', # 🔑 新增周度波动率模型
         'OptSharpe', 'DynamicSwitch', 'DynamicSwitch2',
         'DynamicSwitch_IR', 'DynamicSwitch2_IR',
+        'DynamicSwitch_IR', 'DynamicSwitch2_IR',  # 🔑 新增
+        'ClusterRegime',  # 🔑 新增
         'SensitiveSwitch', 
         'BuyAndHoldAll'
     ]     
@@ -68,6 +94,10 @@ class Config:
         'LGBM-22_ablation', 'LGBM-23_ablation', 'LGBM-24_ablation',
         # 'XGB-low_ablation', 'XGB-mid_ablation', 'XGB-high_ablatioln',
         # 'LGBM-low_ablation', 'LGBM-mid_ablation', 'LGBM-high_abation'  
+        'XGB-low_ablation', 'XGB-mid_ablation', 'XGB-high_ablation',
+        'LGBM-low_ablation', 'LGBM-mid_ablation', 'LGBM-high_ablation'  
+        'LGBM_c1', 'LGBM_c2', 'LGBM_c3',  # 🔑 新增
+        'XGB_c1', 'XGB_c2', 'XGB_c3'      # 🔑 新增
     ]  
     DYNAMIC_SWITCH_B = 1.00  
 
