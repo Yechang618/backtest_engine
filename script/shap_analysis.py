@@ -215,7 +215,7 @@ def run_quarterly_analysis(cfg: Config, model_type: str = 'LightGBM'):
     
     ic_ir_results = {}
     shap_results = {}
-    N_SAMPLING, SAMPLE_SIZE = 20, 5000
+    N_SAMPLING, SAMPLE_SIZE = 20, 2000
     
     for q in quarters:
         q_str = str(q)
