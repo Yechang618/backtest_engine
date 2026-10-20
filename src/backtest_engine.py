@@ -319,6 +319,9 @@ class BacktestEngine:
         logger.info(f"🚀 启动样本外回测 (统一路由竞争版) | 交易日: {len(dates)}")
         
         for date in dates:
+
+            self._ds3_preds_cache = {}
+
             daily = grouped.get_group(date).set_index('S_INFO_WINDCODE').copy()
             Target = 'S_DQ_ADJCLOSE' 
             price_dict = daily[Target].to_dict()
@@ -471,22 +474,25 @@ class BacktestEngine:
                     if preds_series.std() < 1e-10 or valid_true_labels.std() < 1e-10:
                         continue
 
+                    if m in ds3_base_models:
+                        self._ds3_preds_cache[m] = preds_series  # 缓存 preds_series 以便后续计算虚拟收益
+
                     # preds_series = pd.Series(preds, index=valid_tradable.index)
                     
                     # 🔑 新增：如果是 DS3 基础模型，计算其虚拟 Top K 的当日收益率
-                    if m in ds3_base_models:
-                        top_k_codes = preds_series.nlargest(self.cfg.TOP_K).index.tolist()
-                        # 获取这些股票当天的 daily_ret (即 self.returns_history[c][-1])
-                        daily_rets = [self.returns_history[c][-1] for c in top_k_codes 
-                                    if c in self.returns_history and len(self.returns_history[c]) > 0]
-                        if daily_rets:
-                            model_daily_ret = float(np.mean(daily_rets))
-                            self.model_returns_history[m].append(model_daily_ret)
+                    # if m in ds3_base_models:
+                    #     top_k_codes = preds_series.nlargest(self.cfg.TOP_K).index.tolist()
+                    #     # 获取这些股票当天的 daily_ret (即 self.returns_history[c][-1])
+                    #     daily_rets = [self.returns_history[c][-1] for c in top_k_codes 
+                    #                 if c in self.returns_history and len(self.returns_history[c]) > 0]
+                    #     if daily_rets:
+                    #         model_daily_ret = float(np.mean(daily_rets))
+                    #         self.model_returns_history[m].append(model_daily_ret)
                             
-                            # 限制历史长度，防止内存溢出
-                            max_len = getattr(self.cfg, 'DYNAMIC_SWITCH3_WINDOW', 10) + 5
-                            if len(self.model_returns_history[m]) > max_len:
-                                self.model_returns_history[m] = self.model_returns_history[m][-max_len:]
+                    #         # 限制历史长度，防止内存溢出
+                    #         max_len = getattr(self.cfg, 'DYNAMIC_SWITCH3_WINDOW', 10) + 5
+                    #         if len(self.model_returns_history[m]) > max_len:
+                    #             self.model_returns_history[m] = self.model_returns_history[m][-max_len:]
 
                     ic = valid_true_labels.corr(preds_series, method='spearman')
                     if not np.isnan(ic):
@@ -495,7 +501,32 @@ class BacktestEngine:
                             self.dynamic_ic_history[m].append(ic)
                             if len(self.dynamic_ic_history[m]) > 10:
                                 self.dynamic_ic_history[m] = self.dynamic_ic_history[m][-10:]
-                                
+
+            # ==========================================
+            # 🔑 新增：统一记录 DynamicSwitch3 基础模型的虚拟收益 (确保每日严格对齐)
+            # ==========================================
+            if 'DynamicSwitch3' in self.cfg.MODELS:
+                ds3_base_models = set(getattr(self.cfg, 'DYNAMIC_SWITCH3_BASE_MODELS', []))
+                for m in ds3_base_models:
+                    # 如果该模型在上面的 IC 循环中成功计算了 preds_series，它会被缓存
+                    # 如果没有缓存（被 skip 了），则当天收益记为 0.0
+                    if m in self._ds3_preds_cache:
+                        preds_series = self._ds3_preds_cache[m]
+                        top_k_codes = preds_series.nlargest(self.cfg.TOP_K).index.tolist()
+                        daily_rets = [self.returns_history[c][-1] for c in top_k_codes 
+                                    if c in self.returns_history and len(self.returns_history[c]) > 0]
+                        model_daily_ret = float(np.mean(daily_rets)) if daily_rets else 0.0
+                    else:
+                        model_daily_ret = 0.0  # 当天无有效预测，收益记为 0
+                        
+                    self.model_returns_history[m].append(model_daily_ret)
+                    
+                    # 限制历史长度，防止内存溢出 (保留 window + 5 天的余量)
+                    window = getattr(self.cfg, 'DYNAMIC_SWITCH3_WINDOW', 10)
+                    max_len = window + 5
+                    if len(self.model_returns_history[m]) > max_len:
+                        self.model_returns_history[m] = self.model_returns_history[m][-max_len:]
+
             is_rebalance_day = date in rebalance_dates_set if rebalance_dates_set else ((day_cnt - self.cfg.WARMUP_DAYS) % self.cfg.REBALANCE_DAYS == 0)
             
             if is_rebalance_day:
@@ -572,10 +603,16 @@ class BacktestEngine:
                     # 1. 收集有效模型的收益率历史
                     valid_rets = {}
                     for m in ds3_base:
+
+                        # hist = self.model_returns_history.get(m, [])
+                        # if len(hist) >= 2:  # 至少需要2天数据才能计算协方差
+                        #     valid_rets[m] = hist[-window:]
+
                         hist = self.model_returns_history.get(m, [])
-                        if len(hist) >= 2:  # 至少需要2天数据才能计算协方差
+                        # 🔑 核心修复：必须严格攒够 window 天数据才参与优化，确保所有数组长度一致
+                        if len(hist) >= window:  
                             valid_rets[m] = hist[-window:]
-                    
+
                     # 2. 均值-方差优化 (Mean-Variance Optimization)
                     if len(valid_rets) >= 2:
                         ret_df = pd.DataFrame(valid_rets)
