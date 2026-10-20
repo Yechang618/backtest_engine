@@ -521,8 +521,8 @@ class BacktestEngine:
                     # 限制历史长度，防止内存溢出 (保留 window + 5 天的余量)
                     window = getattr(self.cfg, 'DYNAMIC_SWITCH3_WINDOW', 10)
                     max_len = window + 5
-                    if len(self.model_returns_history[m]) > max_len:
-                        self.model_returns_history[m] = self.model_returns_history[m][-max_len:]
+                    # if len(self.model_returns_history[m]) > max_len:
+                    #     self.model_returns_history[m] = self.model_returns_history[m][-max_len:]
 
             is_rebalance_day = date in rebalance_dates_set if rebalance_dates_set else ((day_cnt - self.cfg.WARMUP_DAYS) % self.cfg.REBALANCE_DAYS == 0)
             
