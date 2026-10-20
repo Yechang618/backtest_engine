@@ -58,9 +58,7 @@ class BacktestEngine:
         self.dynamic_switch_history = []
 
         # 🔑 新增：DynamicSwitch3 (Optimal Sharpe 模型加权) 状态
-        self.model_returns_history = defaultdict(list)  # 记录每个基础模型每天的虚拟 Top K 收益率
         self.dynamic_switch3_weights = None             # 缓存当前调仓日计算出的模型权重
-        self.dynamic_switch3_valid_models = []          # 参与加权的有效模型列表
 
         # 🔑 新增：DynamicSwitch2 (IC 加权集成) 状态
         self.dynamic_switch2_base_models = getattr(config, 'DYNAMIC_SWITCH2_BASE_MODELS', [])
@@ -596,31 +594,27 @@ class BacktestEngine:
                             self.sensitive_current_model = best_model   
 
                 # 🔑 新增：DynamicSwitch3 权重计算 (Optimal Sharpe 模型加权)
+                # 🔑 修改版：DynamicSwitch3 权重计算 (基于窗口 IC 的 Optimal Sharpe)
                 if 'DynamicSwitch3' in self.cfg.MODELS:
                     ds3_base = getattr(self.cfg, 'DYNAMIC_SWITCH3_BASE_MODELS', [])
                     window = getattr(self.cfg, 'DYNAMIC_SWITCH3_WINDOW', 10)
                     
-                    # 1. 收集有效模型的收益率历史
-                    valid_rets = {}
+                    # 1. 收集有效模型的 IC 历史 (直接复用 dynamic_ic_history)
+                    valid_ics = {}
                     for m in ds3_base:
-
-                        # hist = self.model_returns_history.get(m, [])
-                        # if len(hist) >= 2:  # 至少需要2天数据才能计算协方差
-                        #     valid_rets[m] = hist[-window:]
-
-                        hist = self.model_returns_history.get(m, [])
-                        # 🔑 核心修复：必须严格攒够 window 天数据才参与优化，确保所有数组长度一致
+                        hist = self.dynamic_ic_history.get(m, [])
+                        # 必须攒够至少 window 天数据才能计算协方差
                         if len(hist) >= window:  
-                            valid_rets[m] = hist[-window:]
-
-                    # 2. 均值-方差优化 (Mean-Variance Optimization)
-                    if len(valid_rets) >= 2:
-                        ret_df = pd.DataFrame(valid_rets)
-                        mu = ret_df.mean()
-                        cov_matrix = ret_df.cov()
+                            valid_ics[m] = hist[-window:]
+                    
+                    # 2. 均值-方差优化 (Mean-Variance Optimization on ICs)
+                    if len(valid_ics) >= 2:
+                        ic_df = pd.DataFrame(valid_ics)
+                        mu = ic_df.mean()
+                        cov_matrix = ic_df.cov()
                         
                         # 加入微小正则化防止协方差矩阵奇异
-                        reg = np.eye(len(valid_rets)) * 1e-4 * np.trace(cov_matrix.values) / len(valid_rets)
+                        reg = np.eye(len(valid_ics)) * 1e-4 * np.trace(cov_matrix.values) / len(valid_ics)
                         try:
                             # 求解 w = (Sigma + reg)^-1 * mu
                             raw_w = np.linalg.solve(cov_matrix.values + reg, mu.values)
@@ -631,21 +625,18 @@ class BacktestEngine:
                             else:
                                 weights = np.ones_like(raw_w) / len(raw_w)
                                 
-                            self.dynamic_switch3_weights = {m: w for m, w in zip(valid_rets.keys(), weights)}
-                            self.dynamic_switch3_valid_models = list(valid_rets.keys())
+                            self.dynamic_switch3_weights = {m: w for m, w in zip(valid_ics.keys(), weights)}
                             
                             weight_log = {m: f"{w:.3f}" for m, w in self.dynamic_switch3_weights.items() if w > 1e-6}
-                            logger.info(f"⚖️ DynamicSwitch3 更新权重 (Optimal Sharpe, Window={window}): {weight_log}")
+                            logger.info(f"⚖️ DynamicSwitch3 更新权重 (Optimal Sharpe on IC, Window={window}): {weight_log}")
                         except Exception as e:
                             logger.warning(f"⚠️ DynamicSwitch3 优化求解失败: {e}，退化为等权")
-                            self.dynamic_switch3_weights = {m: 1.0 / len(valid_rets) for m in valid_rets}
-                            self.dynamic_switch3_valid_models = list(valid_rets.keys())
+                            self.dynamic_switch3_weights = {m: 1.0 / len(valid_ics) for m in valid_ics}
                     else:
                         # 模型不足，退化为全给第一个或置空
-                        if len(valid_rets) == 1:
-                            m = list(valid_rets.keys())[0]
+                        if len(valid_ics) == 1:
+                            m = list(valid_ics.keys())[0]
                             self.dynamic_switch3_weights = {m: 1.0}
-                            self.dynamic_switch3_valid_models = [m]
                         else:
                             self.dynamic_switch3_weights = None
                             
