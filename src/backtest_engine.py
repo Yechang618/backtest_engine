@@ -517,7 +517,6 @@ class BacktestEngine:
                     else:
                         model_daily_ret = 0.0  # 当天无有效预测，收益记为 0
                         
-                    self.model_returns_history[m].append(model_daily_ret)
                     
                     # 限制历史长度，防止内存溢出 (保留 window + 5 天的余量)
                     window = getattr(self.cfg, 'DYNAMIC_SWITCH3_WINDOW', 10)
