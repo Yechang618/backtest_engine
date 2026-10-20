@@ -57,6 +57,11 @@ class BacktestEngine:
         self.dynamic_b = getattr(config, 'DYNAMIC_SWITCH_B', 1.05)
         self.dynamic_switch_history = []
 
+        # 🔑 新增：DynamicSwitch3 (Optimal Sharpe 模型加权) 状态
+        self.model_returns_history = defaultdict(list)  # 记录每个基础模型每天的虚拟 Top K 收益率
+        self.dynamic_switch3_weights = None             # 缓存当前调仓日计算出的模型权重
+        self.dynamic_switch3_valid_models = []          # 参与加权的有效模型列表
+
         # 🔑 新增：DynamicSwitch2 (IC 加权集成) 状态
         self.dynamic_switch2_base_models = getattr(config, 'DYNAMIC_SWITCH2_BASE_MODELS', [])
         self.dynamic_switch2_current_weights = None
@@ -427,6 +432,11 @@ class BacktestEngine:
             if valid_mask.sum() > 30:
                 valid_tradable = tradable[valid_mask]
                 valid_true_labels = true_labels[valid_mask]
+
+                # 🔑 获取需要记录收益率的基础模型集合
+                ds3_base_models = set(getattr(self.cfg, 'DYNAMIC_SWITCH3_BASE_MODELS', []))
+
+            
                 for m in self.cfg.MODELS:
                     if m in ['BuyAndHoldAll']: continue
 
@@ -445,8 +455,7 @@ class BacktestEngine:
                             preds_series = weighted_preds
                         else:
                             continue  # 调仓前无权重，跳过 IC 计算      
-                    # elif m == 'DynamicSwitch':
-                    #     m_to_calc = self.dynamic_current_model
+
                     m_to_calc = self.dynamic_current_model if m == 'DynamicSwitch' else m
 
                     if m_to_calc == 'OptSharpe':
@@ -461,6 +470,24 @@ class BacktestEngine:
                     preds_series = pd.Series(preds, index=valid_tradable.index)
                     if preds_series.std() < 1e-10 or valid_true_labels.std() < 1e-10:
                         continue
+
+                    # preds_series = pd.Series(preds, index=valid_tradable.index)
+                    
+                    # 🔑 新增：如果是 DS3 基础模型，计算其虚拟 Top K 的当日收益率
+                    if m in ds3_base_models:
+                        top_k_codes = preds_series.nlargest(self.cfg.TOP_K).index.tolist()
+                        # 获取这些股票当天的 daily_ret (即 self.returns_history[c][-1])
+                        daily_rets = [self.returns_history[c][-1] for c in top_k_codes 
+                                    if c in self.returns_history and len(self.returns_history[c]) > 0]
+                        if daily_rets:
+                            model_daily_ret = float(np.mean(daily_rets))
+                            self.model_returns_history[m].append(model_daily_ret)
+                            
+                            # 限制历史长度，防止内存溢出
+                            max_len = getattr(self.cfg, 'DYNAMIC_SWITCH3_WINDOW', 10) + 5
+                            if len(self.model_returns_history[m]) > max_len:
+                                self.model_returns_history[m] = self.model_returns_history[m][-max_len:]
+
                     ic = valid_true_labels.corr(preds_series, method='spearman')
                     if not np.isnan(ic):
                         self.daily_ic_results[m].append({'TRADE_DT': date, 'IC': ic})
@@ -535,8 +562,56 @@ class BacktestEngine:
                         best_model = max(avg_ics, key=avg_ics.get)
                         if best_model != self.sensitive_current_model:
                             logger.info(f"🔄 SensitiveSwitch 切换模型: {self.sensitive_current_model} -> {best_model} (Avg Resid IC: {avg_ics.get(self.sensitive_current_model, 0):.4f} -> {avg_ics[best_model]:.4f})")
-                            self.sensitive_current_model = best_model            
+                            self.sensitive_current_model = best_model   
 
+                # 🔑 新增：DynamicSwitch3 权重计算 (Optimal Sharpe 模型加权)
+                if 'DynamicSwitch3' in self.cfg.MODELS:
+                    ds3_base = getattr(self.cfg, 'DYNAMIC_SWITCH3_BASE_MODELS', [])
+                    window = getattr(self.cfg, 'DYNAMIC_SWITCH3_WINDOW', 10)
+                    
+                    # 1. 收集有效模型的收益率历史
+                    valid_rets = {}
+                    for m in ds3_base:
+                        hist = self.model_returns_history.get(m, [])
+                        if len(hist) >= 2:  # 至少需要2天数据才能计算协方差
+                            valid_rets[m] = hist[-window:]
+                    
+                    # 2. 均值-方差优化 (Mean-Variance Optimization)
+                    if len(valid_rets) >= 2:
+                        ret_df = pd.DataFrame(valid_rets)
+                        mu = ret_df.mean()
+                        cov_matrix = ret_df.cov()
+                        
+                        # 加入微小正则化防止协方差矩阵奇异
+                        reg = np.eye(len(valid_rets)) * 1e-4 * np.trace(cov_matrix.values) / len(valid_rets)
+                        try:
+                            # 求解 w = (Sigma + reg)^-1 * mu
+                            raw_w = np.linalg.solve(cov_matrix.values + reg, mu.values)
+                            raw_w = np.maximum(raw_w, 0)  # 🔑 核心：限制权重非负 (Long-only 模型配置)
+                            
+                            if raw_w.sum() > 1e-8:
+                                weights = raw_w / raw_w.sum()
+                            else:
+                                weights = np.ones_like(raw_w) / len(raw_w)
+                                
+                            self.dynamic_switch3_weights = {m: w for m, w in zip(valid_rets.keys(), weights)}
+                            self.dynamic_switch3_valid_models = list(valid_rets.keys())
+                            
+                            weight_log = {m: f"{w:.3f}" for m, w in self.dynamic_switch3_weights.items() if w > 1e-6}
+                            logger.info(f"⚖️ DynamicSwitch3 更新权重 (Optimal Sharpe, Window={window}): {weight_log}")
+                        except Exception as e:
+                            logger.warning(f"⚠️ DynamicSwitch3 优化求解失败: {e}，退化为等权")
+                            self.dynamic_switch3_weights = {m: 1.0 / len(valid_rets) for m in valid_rets}
+                            self.dynamic_switch3_valid_models = list(valid_rets.keys())
+                    else:
+                        # 模型不足，退化为全给第一个或置空
+                        if len(valid_rets) == 1:
+                            m = list(valid_rets.keys())[0]
+                            self.dynamic_switch3_weights = {m: 1.0}
+                            self.dynamic_switch3_valid_models = [m]
+                        else:
+                            self.dynamic_switch3_weights = None
+                            
                 # # 🔑 新增：DynamicSwitch_IR 切换逻辑 (基于 IR)
                 # if 'DynamicSwitch_IR' in self.cfg.MODELS:
                 #     irs = {}
@@ -696,8 +771,6 @@ class BacktestEngine:
                                 top50 = pd.Series(preds, index=tradable.index).nlargest(self.cfg.TOP_K).index.tolist()
                             else: top50 = []
 
-                        # if name == 'DynamicSwitch':
-                            # ... (原有的 DynamicSwitch 逻辑) ...
                             
                         # 🔑 新增：DynamicSwitch2 专属调仓逻辑
                         elif name == 'DynamicSwitch2':
@@ -744,6 +817,22 @@ class BacktestEngine:
                                             weighted_preds += weight * pd.Series(preds, index=tradable.index)
                                         except Exception as e:
                                             logger.error(f"❌ DynamicSwitch2_IR 获取 {base_m} 预测失败: {e}")
+                                top50 = weighted_preds.nlargest(self.cfg.TOP_K).index.tolist()
+                            else:
+                                top50 = []
+
+                        # 🔑 新增：DynamicSwitch3 专属调仓逻辑 (最优夏普加权集成)
+                        elif name == 'DynamicSwitch3':
+                            if self.dynamic_switch3_weights is not None:
+                                weighted_preds = pd.Series(0.0, index=tradable.index)
+                                for base_m, weight in self.dynamic_switch3_weights.items():
+                                    if base_m in self.trainers:
+                                        b_feats = self.aligned_features.get(base_m, self._get_features_for_model(base_m))
+                                        try:
+                                            preds = self.trainers[base_m].predict(tradable[b_feats])
+                                            weighted_preds += weight * pd.Series(preds, index=tradable.index)
+                                        except Exception as e:
+                                            logger.error(f"❌ DynamicSwitch3 获取 {base_m} 预测失败: {e}")
                                 top50 = weighted_preds.nlargest(self.cfg.TOP_K).index.tolist()
                             else:
                                 top50 = []

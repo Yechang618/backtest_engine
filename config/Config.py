@@ -73,11 +73,16 @@ class Config:
         'XGB-wLow', 'XGB-wMid', 'XGB-wHigh',  # 🔑 新增周度波动率模型
         'LGBM-wLow', 'LGBM-wMid', 'LGBM-wHigh', # 🔑 新增周度波动率模型
         'OptSharpe', 'DynamicSwitch', 'DynamicSwitch2',
-        'DynamicSwitch_IR', 'DynamicSwitch2_IR',  # 🔑 新增
+        'DynamicSwitch_IR', 'DynamicSwitch2_IR',  
+        'DynamicSwitch3', # 🔑 新增
         'ClusterRegime',  # 🔑 新增
         'SensitiveSwitch', 
         'BuyAndHoldAll'
     ]     
+
+    # 🔑 新增：DynamicSwitch3 (Optimal Sharpe 模型加权) 路由配置
+    DYNAMIC_SWITCH3_BASE_MODELS = []  # 将在 run_backtest.py 中动态赋值为所有树模型
+    DYNAMIC_SWITCH3_WINDOW = 10       # 计算最优权重的滚动窗口大小 (天数)
 
     # 🔄 动态切换策略配置
     DYNAMIC_SWITCH_INIT_MODEL = 'LGBM-24'
