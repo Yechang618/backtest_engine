@@ -127,7 +127,7 @@ def main(start_date='2026-04-01', use_trade_pool=False):
     base_strategies = ['ElasticNet', 'OptSharpe', 
                        'DynamicSwitch', 'DynamicSwitch2', 
                        'DynamicSwitch_IR', 'DynamicSwitch2_IR', 
-                       'DynamicSwitch3',  # 🔑 新增
+                       'DynamicSwitch3', 'DynamicSwitch4',  # 🔑 新增
                        'SensitiveSwitch', 'BuyAndHoldAll']
     cfg.MODELS = base_strategies + tree_models
     cfg.DYNAMIC_SWITCH_BASE_MODELS = tree_models
@@ -135,7 +135,8 @@ def main(start_date='2026-04-01', use_trade_pool=False):
     cfg.DYNAMIC_SWITCH2_IR_BASE_MODELS = tree_models
     cfg.SENSITIVE_SWITCH_BASE_MODELS = tree_models
     cfg.DYNAMIC_SWITCH3_BASE_MODELS = tree_models  # 🔑 新增：将所有树模型纳入 DS3 竞争池
-    
+    cfg.DYNAMIC_SWITCH4_BASE_MODELS = tree_models  # 🔑 新增：将所有树模型纳入 DS3 竞争池
+
     if hasattr(cfg, 'ABLATION_FEATURE_JSON') and os.path.exists(cfg.ABLATION_FEATURE_JSON):
         with open(cfg.ABLATION_FEATURE_JSON, 'r', encoding='utf-8') as f:
             raw_ablation_features = json.load(f)

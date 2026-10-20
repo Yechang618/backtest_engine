@@ -75,6 +75,7 @@ class Config:
         'OptSharpe', 'DynamicSwitch', 'DynamicSwitch2',
         'DynamicSwitch_IR', 'DynamicSwitch2_IR',  
         'DynamicSwitch3', # 🔑 新增
+        'DynamicSwitch4',  # 🔑 新增
         'ClusterRegime',  # 🔑 新增
         'SensitiveSwitch', 
         'BuyAndHoldAll'
@@ -83,7 +84,10 @@ class Config:
     # 🔑 新增：DynamicSwitch3 (Optimal Sharpe 模型加权) 路由配置
     DYNAMIC_SWITCH3_BASE_MODELS = []  # 将在 run_backtest.py 中动态赋值为所有树模型
     DYNAMIC_SWITCH3_WINDOW = 10       # 计算最优权重的滚动窗口大小 (天数)
-
+    # 🔑 新增：DynamicSwitch4 (个股级 Optimal Sharpe 模型加权) 路由配置
+    DYNAMIC_SWITCH4_BASE_MODELS = []  # 将在 run_backtest.py 中动态赋值为所有树模型
+    DYNAMIC_SWITCH4_WINDOW = 10       # 计算个股最优权重的滚动窗口大小 (自然日)
+    
     # 🔄 动态切换策略配置
     DYNAMIC_SWITCH_INIT_MODEL = 'LGBM-24'
     DYNAMIC_SWITCH_BASE_MODELS = [

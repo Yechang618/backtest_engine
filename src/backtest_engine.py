@@ -60,6 +60,11 @@ class BacktestEngine:
         # 🔑 新增：DynamicSwitch3 (Optimal Sharpe 模型加权) 状态
         self.dynamic_switch3_weights = None             # 缓存当前调仓日计算出的模型权重
 
+        # 🔑 新增：DynamicSwitch4 (个股级 Optimal Sharpe) 状态
+        self.current_model_selections = {}  # 记录当前调仓日各基础模型选中的 Top K 股票
+        self.daily_model_selections = []    # 记录过去 W 个自然日各模型的选中记录
+        self.dynamic_switch4_window = getattr(config, 'DYNAMIC_SWITCH4_WINDOW', 10)
+
         # 🔑 新增：DynamicSwitch2 (IC 加权集成) 状态
         self.dynamic_switch2_base_models = getattr(config, 'DYNAMIC_SWITCH2_BASE_MODELS', [])
         self.dynamic_switch2_current_weights = None
@@ -377,15 +382,6 @@ class BacktestEngine:
                     results[m].append({'TRADE_DT': date, 'Value': nav})
                 continue
                 
-            # tradable = daily[daily.get('BUY_MASK', 1) == 1].copy()
-            # if self.trade_pools is not None:
-            #     current_month_str = date.strftime('%Y%m')
-            #     allowed_codes = self.trade_pools.get(current_month_str, set())
-            #     if allowed_codes:
-            #         tradable = tradable[tradable.index.isin(allowed_codes)]
-            #     else:
-            #         tradable = pd.DataFrame()
-            # 🔑 核心修改：获取当日可交易股票，并应用股票池硬约束 (对所有模型全局生效)
             tradable = daily[daily.get('BUY_MASK', 1) == 1].copy()
             if self.trade_pools is not None:
                 current_month_str = date.strftime('%Y%m')
@@ -474,23 +470,6 @@ class BacktestEngine:
 
                     if m in ds3_base_models:
                         self._ds3_preds_cache[m] = preds_series  # 缓存 preds_series 以便后续计算虚拟收益
-
-                    # preds_series = pd.Series(preds, index=valid_tradable.index)
-                    
-                    # 🔑 新增：如果是 DS3 基础模型，计算其虚拟 Top K 的当日收益率
-                    # if m in ds3_base_models:
-                    #     top_k_codes = preds_series.nlargest(self.cfg.TOP_K).index.tolist()
-                    #     # 获取这些股票当天的 daily_ret (即 self.returns_history[c][-1])
-                    #     daily_rets = [self.returns_history[c][-1] for c in top_k_codes 
-                    #                 if c in self.returns_history and len(self.returns_history[c]) > 0]
-                    #     if daily_rets:
-                    #         model_daily_ret = float(np.mean(daily_rets))
-                    #         self.model_returns_history[m].append(model_daily_ret)
-                            
-                    #         # 限制历史长度，防止内存溢出
-                    #         max_len = getattr(self.cfg, 'DYNAMIC_SWITCH3_WINDOW', 10) + 5
-                    #         if len(self.model_returns_history[m]) > max_len:
-                    #             self.model_returns_history[m] = self.model_returns_history[m][-max_len:]
 
                     ic = valid_true_labels.corr(preds_series, method='spearman')
                     if not np.isnan(ic):
@@ -818,8 +797,7 @@ class BacktestEngine:
                             else:
                                 top50 = []
                                 
-                        # ... [保留原有的 DynamicSwitch, DynamicSwitch2, OptSharpe 逻辑] ...
-                        
+
                         # 🔑 新增：DynamicSwitch_IR 专属调仓逻辑
                         elif name == 'DynamicSwitch_IR':
                             selected_model = self.dynamic_ir_current_model
@@ -864,6 +842,85 @@ class BacktestEngine:
                             else:
                                 top50 = []
                                 
+                        # 🔑 新增：DynamicSwitch4 专属调仓逻辑 (个股级 Optimal Sharpe)
+                        elif name == 'DynamicSwitch4':
+                            ds4_base = getattr(self.cfg, 'DYNAMIC_SWITCH4_BASE_MODELS', [])
+                            W = len(self.daily_model_selections)
+                            
+                            if W < 2 or not ds4_base:
+                                top50 = []
+                            else:
+                                # 1. 计算全局 fallback 权重 (同 DynamicSwitch3，用于未被选中的股票)
+                                valid_ics = {}
+                                for m in ds4_base:
+                                    hist = self.dynamic_ic_history.get(m, [])
+                                    if len(hist) >= 2: valid_ics[m] = hist[-W:]
+                                
+                                global_w = np.ones(len(ds4_base)) / len(ds4_base)
+                                if len(valid_ics) >= 2:
+                                    ic_df = pd.DataFrame(valid_ics)
+                                    mu_g, cov_g = ic_df.mean(), ic_df.cov()
+                                    reg_g = np.eye(len(valid_ics)) * 1e-4 * np.trace(cov_g.values) / len(valid_ics)
+                                    try:
+                                        raw_w_g = np.linalg.solve(cov_g.values + reg_g, mu_g.values)
+                                        raw_w_g = np.maximum(raw_w_g, 0)
+                                        if raw_w_g.sum() > 1e-8: global_w = raw_w_g / raw_w_g.sum()
+                                    except: pass
+                                global_weights = {m: w for m, w in zip(valid_ics.keys(), global_w)}
+
+                                # 2. 统计每只股票在过去 W 天内被选中的次数
+                                code_selection_count = defaultdict(int)
+                                for day_selection in self.daily_model_selections:
+                                    for model, codes in day_selection.items():
+                                        for code in codes:
+                                            code_selection_count[code] += 1
+                                
+                                # 只对选中次数 >= 2 的股票计算专属权重 (性能优化)
+                                active_codes = [code for code, count in code_selection_count.items() 
+                                                if count >= 2 and code in tradable.index]
+                                
+                                final_scores = pd.Series(0.0, index=tradable.index)
+                                
+                                # 3. 为 active_codes 中的股票计算专属权重
+                                for code in active_codes:
+                                    ret_matrix = np.zeros((W, len(ds4_base)))
+                                    for t, day_selection in enumerate(self.daily_model_selections):
+                                        # 对齐收益率索引：daily_model_selections[-1] 对应 returns_history[-1]
+                                        idx = -(W - t)
+                                        r = self.returns_history[code][idx] if abs(idx) <= len(self.returns_history[code]) else 0.0
+                                        
+                                        for m_idx, m in enumerate(ds4_base):
+                                            if m in day_selection and code in day_selection[m]:
+                                                ret_matrix[t, m_idx] = r
+                                                
+                                    mu = ret_matrix.mean(axis=0)
+                                    cov = np.cov(ret_matrix, rowvar=False)
+                                    if cov.ndim == 0: cov = np.array([[cov]])
+                                    
+                                    reg = np.eye(len(ds4_base)) * 1e-4 * np.trace(cov) / len(ds4_base)
+                                    try:
+                                        raw_w = np.linalg.solve(cov + reg, mu)
+                                        raw_w = np.maximum(raw_w, 0)
+                                        w = raw_w / raw_w.sum() if raw_w.sum() > 1e-8 else np.ones_like(raw_w) / len(raw_w)
+                                    except:
+                                        w = np.ones_like(mu) / len(mu)
+                                        
+                                    # 累加专属加权预测分数
+                                    for m_idx, m in enumerate(ds4_base):
+                                        pred = self.prediction_cache.get(date, {}).get(m, {}).get(code, 0.0)
+                                        final_scores[code] += w[m_idx] * pred
+                                        
+                                # 4. 对于不在 active_codes 中的股票，使用全局权重
+                                inactive_codes = [code for code in tradable.index if code not in active_codes]
+                                if inactive_codes:
+                                    for m_idx, m in enumerate(ds4_base):
+                                        if m in global_weights:
+                                            preds = pd.Series(self.prediction_cache.get(date, {}).get(m, {}))
+                                            final_scores.loc[inactive_codes] += global_weights[m] * preds.reindex(inactive_codes, fill_value=0.0)
+                                            
+                                top50 = final_scores.nlargest(self.cfg.TOP_K).index.tolist()
+                                
+                                
                         elif name == 'SensitiveSwitch':
                             selected_model = self.sensitive_current_model
                             if selected_model == 'OptSharpe':
@@ -903,6 +960,12 @@ class BacktestEngine:
                                 preds = self.trainers[name].predict(tradable[feats])
                                 self.prediction_cache[date][name] = dict(zip(tradable.index, preds))
                                 top50 = pd.Series(preds, index=tradable.index).nlargest(self.cfg.TOP_K).index.tolist()
+                            
+                                # 🔑 新增：记录基础模型的选中情况 (供 DynamicSwitch4 使用)
+                                ds4_base = set(getattr(self.cfg, 'DYNAMIC_SWITCH4_BASE_MODELS', []))
+                                if name in ds4_base:
+                                    self.current_model_selections[name] = set(top50)
+                                                         
                             except Exception as e:
                                 logger.error(f"❌ {name} 预测失败: {e}")
                                 top50 = []
@@ -922,7 +985,13 @@ class BacktestEngine:
                 self.dynamic_switch_history.append({'TRADE_DT': date, 'Model': self.dynamic_current_model})
             if 'SensitiveSwitch' in self.cfg.MODELS:
                 self.sensitive_switch_history.append({'TRADE_DT': date, 'Model': self.sensitive_current_model})
-                
+
+            # 🔑 新增：滚动更新 DynamicSwitch4 的每日模型选中记录
+            if 'DynamicSwitch4' in self.cfg.MODELS:
+                self.daily_model_selections.append(self.current_model_selections.copy())
+                if len(self.daily_model_selections) > self.dynamic_switch4_window:
+                    self.daily_model_selections.pop(0)
+                    
             settle_idx = day_cnt - 1 - self.cfg.REBALANCE_DAYS
             if settle_idx >= 0:
                 pred_date = dates[settle_idx]
