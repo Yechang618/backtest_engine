@@ -919,13 +919,29 @@ class BacktestEngine:
                                         final_scores[code] += w[m_idx] * pred
                                         
                                 # 4. 对于不在 active_codes 中的股票，使用全局权重
+                                # inactive_codes = [code for code in tradable.index if code not in active_codes]
+                                # if inactive_codes:
+                                #     for m_idx, m in enumerate(ds4_base):
+                                #         if m in global_weights:
+                                #             preds = pd.Series(self.prediction_cache.get(date, {}).get(m, {}))
+                                #             final_scores.loc[inactive_codes] += global_weights[m] * preds.reindex(inactive_codes, fill_value=0.0)
+                                
+                                # 4. 对于不在 active_codes 中的股票，使用全局权重
                                 inactive_codes = [code for code in tradable.index if code not in active_codes]
-                                if inactive_codes:
-                                    for m_idx, m in enumerate(ds4_base):
-                                        if m in global_weights:
-                                            preds = pd.Series(self.prediction_cache.get(date, {}).get(m, {}))
-                                            final_scores.loc[inactive_codes] += global_weights[m] * preds.reindex(inactive_codes, fill_value=0.0)
-                                            
+                                if inactive_codes and global_weights:
+                                    for m, weight in global_weights.items():
+                                        if weight < 1e-8: continue  # 跳过权重为 0 的模型
+                                        
+                                        # 🔑 核心修复：确保 preds 是正确索引的 Series，并使用 .values 避免 Pandas 类型检查报错
+                                        pred_dict = self.prediction_cache.get(date, {}).get(m, {})
+                                        if pred_dict:
+                                            preds_series = pd.Series(pred_dict).reindex(inactive_codes, fill_value=0.0)
+                                            # 使用 .values 提取 numpy 数组，绕过 Pandas 的严格类型检查
+                                            final_scores.loc[inactive_codes] = (
+                                                final_scores.loc[inactive_codes].values + 
+                                                weight * preds_series.values
+                                            )
+                                                                                        
                                 top50 = final_scores.nlargest(self.cfg.TOP_K).index.tolist()
                                 
                                 
