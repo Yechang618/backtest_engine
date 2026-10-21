@@ -135,7 +135,7 @@ def main(start_date='2026-04-01', use_trade_pool=False):
     cfg.DYNAMIC_SWITCH2_IR_BASE_MODELS = tree_models
     cfg.SENSITIVE_SWITCH_BASE_MODELS = tree_models
     cfg.DYNAMIC_SWITCH3_BASE_MODELS = tree_models  # 🔑 新增：将所有树模型纳入 DS3 竞争池
-    cfg.DYNAMIC_SWITCH4_BASE_MODELS = tree_models  # 🔑 新增：将所有树模型纳入 DS3 竞争池
+    cfg.DYNAMIC_SWITCH4_BASE_MODELS = tree_models  # 🔑 新增：将所有树模型纳入 DS4 竞争池
 
     if hasattr(cfg, 'ABLATION_FEATURE_JSON') and os.path.exists(cfg.ABLATION_FEATURE_JSON):
         with open(cfg.ABLATION_FEATURE_JSON, 'r', encoding='utf-8') as f:

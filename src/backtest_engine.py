@@ -854,7 +854,7 @@ class BacktestEngine:
                                 valid_ics = {}
                                 for m in ds4_base:
                                     hist = self.dynamic_ic_history.get(m, [])
-                                    if len(hist) >= 2: valid_ics[m] = hist[-W:]
+                                    if len(hist) >= W: valid_ics[m] = hist[-W:]
                                 
                                 global_w = np.ones(len(ds4_base)) / len(ds4_base)
                                 if len(valid_ics) >= 2:
