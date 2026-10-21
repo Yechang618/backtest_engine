@@ -415,11 +415,18 @@ class BacktestEngine:
                             valid_resid = valid_resid[valid_resid > -1e5]
                             if len(valid_resid) > 30:
                                 ic = true_labels.loc[valid_resid.index].corr(valid_resid, method='spearman')
+                                # if not np.isnan(ic):
+                                #     if m in self.sensitive_switch_ic_history:
+                                #         self.sensitive_switch_ic_history[m].append(ic)
+                                #         if len(self.sensitive_switch_ic_history[m]) > 10:
+                                #             self.sensitive_switch_ic_history[m] = self.sensitive_switch_ic_history[m][-10:]
                                 if not np.isnan(ic):
-                                    if m in self.sensitive_switch_ic_history:
-                                        self.sensitive_switch_ic_history[m].append(ic)
-                                        if len(self.sensitive_switch_ic_history[m]) > 10:
-                                            self.sensitive_switch_ic_history[m] = self.sensitive_switch_ic_history[m][-10:]
+                                    self.daily_ic_results[m].append({'TRADE_DT': date, 'IC': ic})
+                                    if m in self.dynamic_ic_history:
+                                        self.dynamic_ic_history[m].append(ic)
+                                        # 🔑 核心修复：将硬编码的 10 改为 20，兼容未来可能扩大的 window 参数
+                                        if len(self.dynamic_ic_history[m]) > 20:
+                                            self.dynamic_ic_history[m] = self.dynamic_ic_history[m][-20:]                                            
                                     if m not in self.daily_resid_ic_results:
                                         self.daily_resid_ic_results[m] = []
                                     self.daily_resid_ic_results[m].append({'TRADE_DT': date, 'IC': ic})
@@ -854,7 +861,8 @@ class BacktestEngine:
                                 valid_ics = {}
                                 for m in ds4_base:
                                     hist = self.dynamic_ic_history.get(m, [])
-                                    if len(hist) >= W: valid_ics[m] = hist[-W:]
+                                    if len(hist) >= W:
+                                        valid_ics[m] = hist[-W:]
                                 
                                 global_w = np.ones(len(ds4_base)) / len(ds4_base)
                                 if len(valid_ics) >= 2:
