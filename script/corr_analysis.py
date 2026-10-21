@@ -67,42 +67,29 @@ def generate_daily_preds(df: pd.DataFrame, trainers: dict, cfg: Config) -> pd.Da
         for model_name, feats in raw_ablation.items():
             ablation_features[f"{model_name}_ablation"] = feats
 
-    # 存储每日预测结果
-    daily_preds_list = []
-    
-    # 按日期分组计算，节省内存且符合截面分析逻辑
-    for date, group in df.groupby('TRADE_DT'):
-        if len(group) < 10:  # 样本太少跳过
-            continue
-            
-        day_preds = {'TRADE_DT': date}
-        for model_name, model in trainers.items():
-            feats = get_model_features(model_name, all_feature_cols, ablation_features, cfg)
-            valid_feats = [f for f in feats if f in group.columns]
-            
-            try:
-                # 预测并填入当日结果
-                preds = model.predict(group[valid_feats])
-                day_preds[model_name] = np.mean(preds) # 占位，实际我们需要保留每只股票的预测值以计算相关性
-                # 修正：我们需要保留每只股票的预测值，所以不在这聚合
-            except Exception as e:
-                logging.warning(f"模型 {model_name} 在 {date} 预测失败: {e}")
-                day_preds[model_name] = np.nan
-        
-        # 重新构建：直接对整个 group 进行 predict，然后 merge
-        # 为了效率，直接对 group 操作
-        pass # 见下方优化实现
-
-    # 🔑 优化实现：直接对 DataFrame 进行批量预测，保留 (TRADE_DT, S_INFO_WINDCODE) 索引
     preds_records = []
     for model_name, model in trainers.items():
         feats = get_model_features(model_name, all_feature_cols, ablation_features, cfg)
         valid_feats = [f for f in feats if f in df.columns]
+        
         try:
-            preds = model.predict(df[valid_feats])
-            # 保存为 Series 以便后续按日期分组
-            preds_series = pd.Series(preds, index=df.index, name=model_name)
+            # 🔑 核心修复：提取特征矩阵并剔除含有 NaN 的行，防止 ElasticNet 等线性模型报错
+            X = df[valid_feats]
+            valid_mask = X.notna().all(axis=1)
+            X_valid = X[valid_mask]
+            
+            if len(X_valid) == 0:
+                logging.warning(f"模型 {model_name} 在全量数据中均存在 NaN，跳过预测。")
+                continue
+                
+            # 仅对干净的数据进行预测
+            preds_valid = model.predict(X_valid)
+            
+            # 🔑 将预测结果重新对齐到原始索引，含有 NaN 的样本自动保持为 NaN
+            preds_series = pd.Series(index=df.index, dtype=float, name=model_name)
+            preds_series.loc[valid_mask] = preds_valid
             preds_records.append(preds_series)
+            
         except Exception as e:
             logging.warning(f"模型 {model_name} 批量预测失败: {e}")
             
