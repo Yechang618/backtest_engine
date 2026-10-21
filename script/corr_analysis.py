@@ -215,7 +215,7 @@ def main(use_trade_pool: bool = False):
     datasets = {}
     
     # A. 训练集: <= 2024-12-31, 所有股票
-    train_df = df[df['TRADE_DT'] <= pd.to_datetime('2024-12-31')].copy()
+    train_df = df[(df['TRADE_DT'] >= pd.to_datetime('2015-05-01')) & (df['TRADE_DT'] <= pd.to_datetime('2024-12-31'))].copy()
     datasets['Train_Set'] = train_df
     
     # B. 验证集: 2025-01-01 至 2026-03-31, 所有股票
