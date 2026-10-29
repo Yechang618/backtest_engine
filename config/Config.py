@@ -23,6 +23,9 @@ class Config:
     LABEL_TYPE = 'sharpe'  # <--- 在这里切换 'return' 或 'sharpe'
 
     def __init__(self):
+        
+        self.REBALANCE_DAYS = 5
+
         # 1. 动态生成 Label 后缀和目标列名
         self.LABEL_SUFFIX = '_sp' if self.LABEL_TYPE == 'sharpe' else ''
         self.TARGET_LABEL_COL = f'label{self.LABEL_SUFFIX}_{self.REBALANCE_DAYS}'
@@ -44,7 +47,7 @@ class Config:
         # 4. 其他固定配置
         self.EXCLUDE_BJ = True  
         self.WARMUP_DAYS = 0      
-        self.REBALANCE_DAYS = 5
+        # self.REBALANCE_DAYS = 5
         self.REBALANCE_WEEKDAY = 4   
         self.TOP_K = 25
         self.INITIAL_CAPITAL = 10_000_000.0
@@ -53,8 +56,8 @@ class Config:
         self.STAMP_TAX_RATE = 0.0000
         
         # ... (保留原有的 MODELS, DYNAMIC_SWITCH 等所有策略配置不变) ...
-        CLUSTER_MODEL_PKL = self.MODEL_DIR / "cluster_model.pkl"
-        MARKET_REGIME_LABELS = self.OUT_DIR / "market_regime_labels.json"
+        self.CLUSTER_MODEL_PKL = self.MODEL_DIR / "cluster_model.pkl"
+        self.MARKET_REGIME_LABELS = self.OUT_DIR / "market_regime_labels.json"
         #
         self.MODELS = [
             'ElasticNet', 'XGB-22', 'XGB-23', 'XGB-24', 'LGBM-22', 'LGBM-23', 'LGBM-24', 
