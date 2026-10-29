@@ -26,10 +26,14 @@ class Config:
         
         self.REBALANCE_DAYS = 5
 
-        # 1. 动态生成 Label 后缀和目标列名
-        self.LABEL_SUFFIX = '_sp' if self.LABEL_TYPE == 'sharpe' else ''
-        self.TARGET_LABEL_COL = f'label{self.LABEL_SUFFIX}_{self.REBALANCE_DAYS}'
-        
+        # 1. 🔑 核心修复：动态生成 Label 后缀和目标列名，确保与 data_loader.py 完全一致
+        if self.LABEL_TYPE == 'sharpe':
+            self.LABEL_SUFFIX = '_sp'
+            self.TARGET_LABEL_COL = f'label_sp{self.REBALANCE_DAYS}'  # 生成 label_sp5
+        else:
+            self.LABEL_SUFFIX = ''
+            self.TARGET_LABEL_COL = f'label_{self.REBALANCE_DAYS}'    # 生成 label_5
+            
         # 2. 动态生成带后缀的输出路径，实现物理隔离
         suffix = self.LABEL_SUFFIX
         self.OUT_DIR = self.ROOT_PRT2 / f"output{suffix}" if suffix else self.ROOT_PRT2 / "output"
@@ -43,6 +47,20 @@ class Config:
         self.FIG_DIR.mkdir(parents=True, exist_ok=True)
         self.LOG_DIR.mkdir(parents=True, exist_ok=True)
         self.MODEL_DIR.mkdir(parents=True, exist_ok=True)
+
+        # # 2. 动态生成带后缀的输出路径，实现物理隔离
+        # suffix = self.LABEL_SUFFIX
+        # self.OUT_DIR = self.ROOT_PRT2 / f"output{suffix}" if suffix else self.ROOT_PRT2 / "output"
+        # self.FIG_DIR = self.OUT_DIR / "figures"
+        # self.LOG_DIR = self.ROOT_PRT2 / f"log{suffix}" if suffix else self.ROOT_PRT2 / "log"
+        # self.MODEL_DIR = self.ROOT_PRT2 / f"saved_models{suffix}" if suffix else self.ROOT_PRT2 / "saved_models"
+        # self.PROC_DIR = self.ROOT / f"processed_data/backtest{suffix}" if suffix else self.ROOT / "processed_data/backtest"
+
+        # # 3. 确保目录存在
+        # self.OUT_DIR.mkdir(parents=True, exist_ok=True)
+        # self.FIG_DIR.mkdir(parents=True, exist_ok=True)
+        # self.LOG_DIR.mkdir(parents=True, exist_ok=True)
+        # self.MODEL_DIR.mkdir(parents=True, exist_ok=True)
 
         # 4. 其他固定配置
         self.EXCLUDE_BJ = True  
