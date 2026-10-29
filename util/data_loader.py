@@ -80,7 +80,6 @@ def extract_valid_features(df: pd.DataFrame) -> List[str]:
             
     return valid_features
 
-
 def compute_real_returns(raw_panel_path: str, panel: pd.DataFrame, i: int) -> pd.DataFrame:
     target = 'S_DQ_ADJCLOSE'
     raw = pd.read_parquet(raw_panel_path, columns=['S_INFO_WINDCODE', 'TRADE_DT', target], engine="pyarrow")
@@ -97,7 +96,7 @@ def compute_real_returns(raw_panel_path: str, panel: pd.DataFrame, i: int) -> pd
     raw['daily_ret'] = raw.groupby('S_INFO_WINDCODE')[target].pct_change()
     
     # 计算未来 i 天的均值和标准差
-    # 逻辑：在 T+i 行计算 rolling(i) 的统计量（即 T+1 到 T+i），然后 shift(-i) 移回 T 行
+    # 逻辑：在 T+i 行计算 rolling(i) 的统计量（即 T+1 到 T+i），然后 shift(-i) 移回 T 行，确保无未来函数
     raw[f'_tmp_mean_{i}'] = raw.groupby('S_INFO_WINDCODE')['daily_ret'].transform(
         lambda x: x.rolling(window=i, min_periods=2).mean().shift(-i)
     )
@@ -119,7 +118,6 @@ def compute_real_returns(raw_panel_path: str, panel: pd.DataFrame, i: int) -> pd
     
     merged[target] = merged[target].ffill()
     return merged
-
 
 def compute_derived_factors(df: pd.DataFrame, price_col: str = 'S_DQ_ADJCLOSE') -> pd.DataFrame:
     """
