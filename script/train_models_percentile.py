@@ -88,7 +88,7 @@ def main():
     
     feature_cols = extract_valid_features(df)
     cfg.FEATURE_COLS = feature_cols
-    label_col = f'label_{cfg.REBALANCE_DAYS}'
+    label_col = cfg.TARGET_LABEL_COL
     df = df[(df['FEATURE_MASK'] == 1)].dropna(subset=[label_col] + feature_cols)
     
     p33_m, p67_m, monthly_vol_dict = get_volatility_config(cfg)

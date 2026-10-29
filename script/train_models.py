@@ -49,7 +49,7 @@ def main():
     
     feature_cols = extract_valid_features(df)
     cfg.FEATURE_COLS = feature_cols
-    label_col = f'label_{cfg.REBALANCE_DAYS}'
+    label_col = cfg.TARGET_LABEL_COL
     
     train_df = df[(df['FEATURE_MASK'] == 1)].dropna(subset=[label_col] + feature_cols)
     logging.info(f"📊 全局有效样本数: {len(train_df)}")

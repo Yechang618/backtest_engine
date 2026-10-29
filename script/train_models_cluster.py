@@ -55,7 +55,7 @@ def main():
     df = df.dropna(subset=['CLUSTER_ID'])
     
     feature_cols = extract_valid_features(df)
-    label_col = f'label_{cfg.REBALANCE_DAYS}'
+    label_col = cfg.TARGET_LABEL_COL
     train_df = df[(df['FEATURE_MASK'] == 1)].dropna(subset=[label_col] + feature_cols)
     
     train_period = train_df[train_df['TRADE_DT'] <= '2024-12-31']

@@ -146,7 +146,7 @@ def main():
     df = df[(df['TRADE_DT'] >= pd.to_datetime('2015-05-01')) & (df['TRADE_DT'] <= pd.to_datetime('2026-03-31'))].copy()
     
     all_feature_cols = extract_valid_features(df)
-    label_col = f'label_{cfg.REBALANCE_DAYS}'
+    label_col = cfg.TARGET_LABEL_COL
     train_df = df[(df['FEATURE_MASK'] == 1)].dropna(subset=[label_col] + all_feature_cols)
     
     logging.info(f"📊 全局有效样本数: {len(train_df)} | 特征数: {len(all_feature_cols)}")

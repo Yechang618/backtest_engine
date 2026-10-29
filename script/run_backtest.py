@@ -96,7 +96,7 @@ def main(start_date='2026-04-01', use_trade_pool=False):
     cfg.LOG_DIR.mkdir(parents=True, exist_ok=True)
     
     file_suffix = '_st' if use_trade_pool else '' 
-    
+    label_col = cfg.TARGET_LABEL_COL
     # ==========================================
     # 1. 全局数据与模型加载 (只执行一次，大幅节省时间)
     # ==========================================
@@ -170,7 +170,9 @@ def main(start_date='2026-04-01', use_trade_pool=False):
         cfg.REBALANCE_WEEKDAY = wd
         cfg.INITIAL_CAPITAL = sub_capital
         
-        engine = BacktestEngine(df_test, cfg, trainers=trainers, label_col=f'label_{cfg.REBALANCE_DAYS}', trade_pools=trade_pools, ablation=False)
+        engine = BacktestEngine(df_test, cfg, trainers=trainers, 
+                                label_col=label_col, trade_pools=trade_pools, 
+                                ablation=False)
         results = engine.run()
         
         results_by_weekday[wd] = results

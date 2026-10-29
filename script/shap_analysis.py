@@ -95,7 +95,7 @@ def get_or_train_model(cfg: Config, feature_cols: List[str], df_train: pd.DataFr
                 logging.warning(f"⚠️ 加载 {model_file} 失败: {e}")
                 
     logging.warning(f"⚠️ 未找到预训练的 {model_type} 模型，将现场训练基准模型...")
-    label_col = f'label_{cfg.REBALANCE_DAYS}'
+    label_col = cfg.TARGET_LABEL_COL
     df_valid = df_train[(df_train['FEATURE_MASK'] == 1)].dropna(subset=[label_col] + feature_cols)
     model = lgb.LGBMRegressor(n_estimators=300, max_depth=6, learning_rate=0.05, random_state=42, verbosity=-1)
     model.fit(df_valid[feature_cols], df_valid[label_col])
@@ -105,7 +105,7 @@ def run_quarterly_analysis(cfg: Config, model_type: str = 'LightGBM'):
     logging.info(f"📦 开始加载全量训练集数据 (用于 {model_type})...")
     df = load_train_data_only(cfg)
     feature_cols = extract_valid_features(df)
-    label_col = f'label_{cfg.REBALANCE_DAYS}'
+    label_col = cfg.TARGET_LABEL_COL
     
     df_filtered = df.copy()
     
