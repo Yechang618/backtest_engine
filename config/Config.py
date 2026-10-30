@@ -26,13 +26,9 @@ class Config:
     def __init__(self):
         
         self.REBALANCE_DAYS = 5
-<<<<<<< HEAD
         self.LABEL_TYPE == 'return'
         
-=======
-        self.LABEL_TYPE = 'sharpe'
 
->>>>>>> 4039702a2c10947337804910f126a0cbf5e42482
         # 1. 🔑 核心修复：动态生成 Label 后缀和目标列名，确保与 data_loader.py 完全一致
         if self.LABEL_TYPE == 'sharpe':
             self.LABEL_SUFFIX = '_sp'
