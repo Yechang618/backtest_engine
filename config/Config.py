@@ -27,7 +27,6 @@ class Config:
         
         self.REBALANCE_DAYS = 5
         self.LABEL_TYPE == 'return'
-        
 
         # 1. 🔑 核心修复：动态生成 Label 后缀和目标列名，确保与 data_loader.py 完全一致
         if self.LABEL_TYPE == 'sharpe':
