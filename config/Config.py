@@ -7,12 +7,21 @@ from pathlib import Path
 
 class Config:
     # 📂 数据路径 (只读)
-    Date = "20261027"
-    DATA_RAW_ROOT, DATA_ROOT = "/data/data_process/5.27_update/rebuild", "/data/data_process/5.27_update/rebuild/model_training_step15_selected_panel"
-    RAW_PANEL = f"{DATA_RAW_ROOT}/market_base_with_industry_20150101_{Date}.parquet"
-    DATA_TEST_DIR = f"{DATA_ROOT}/model_ready_panel_selected_fin_ind_pv_adj_masks_rebuild_20150105_{Date}.parquet"
-    DATA_DIR = DATA_TEST_DIR
-    TRADE_POOL_DIR = f"/home/eric/workspace/data/riva_cn_tech_trade_pools_202601_202608".strip()
+    Local = True
+    if Local:
+        Date = "20260812"
+        DATA_RAW_ROOT, DATA_ROOT = r"C:\Users\yecha\workspace\data", r"C:\Users\yecha\workspace\data"
+        RAW_PANEL = f"{DATA_RAW_ROOT}/market_base_with_industry_20150101_{Date}.parquet"
+        DATA_TEST_DIR = f"{DATA_ROOT}/model_ready_panel_selected_fin_ind_pv_adj_masks_rebuild_20150105_{Date}.parquet"
+        DATA_DIR = DATA_TEST_DIR
+        TRADE_POOL_DIR = f"{DATA_RAW_ROOT}/riva_cn_tech_trade_pools_202601_202608".strip()
+    else:
+        Date = "20261027"
+        DATA_RAW_ROOT, DATA_ROOT = "/data/data_process/5.27_update/rebuild", "/data/data_process/5.27_update/rebuild/model_training_step15_selected_panel"
+        RAW_PANEL = f"{DATA_RAW_ROOT}/market_base_with_industry_20150101_{Date}.parquet"
+        DATA_TEST_DIR = f"{DATA_ROOT}/model_ready_panel_selected_fin_ind_pv_adj_masks_rebuild_20150105_{Date}.parquet"
+        DATA_DIR = DATA_TEST_DIR
+        TRADE_POOL_DIR = f"/home/eric/workspace/data/riva_cn_tech_trade_pools_202601_202608".strip()
 
     # 📂 工程基础路径 (可写)
     ROOT = Path(__file__).resolve().parents[1]

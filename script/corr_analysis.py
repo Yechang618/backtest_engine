@@ -100,28 +100,68 @@ def generate_daily_preds(df: pd.DataFrame, trainers: dict, cfg: Config) -> pd.Da
     preds_df['TRADE_DT'] = df['TRADE_DT'].values
     return preds_df
 
-def calc_mean_daily_corr(preds_df: pd.DataFrame) -> pd.DataFrame:
-    """计算每日截面相关性矩阵，并返回时间序列均值"""
-    daily_corrs = []
+# def calc_mean_daily_corr(preds_df: pd.DataFrame) -> pd.DataFrame:
+#     """计算每日截面相关性矩阵，并返回时间序列均值"""
+#     daily_corrs = []
     
+#     for date, group in preds_df.groupby('TRADE_DT'):
+#         if len(group) >= 10:  # 至少 10 只股票才计算当日相关性
+#             # 剔除全 NaN 的列
+#             valid_group = group.drop(columns=['TRADE_DT']).dropna(axis=1, how='all')
+#             if valid_group.shape[1] >= 2:
+#                 corr_mat = valid_group.corr(method='pearson')
+#                 daily_corrs.append(corr_mat)
+                
+#     if not daily_corrs:
+#         logging.warning("⚠️ 无有效日期可计算相关性矩阵")
+#         return pd.DataFrame()
+        
+#     # 对所有日期的相关矩阵求和，然后除以天数 (处理可能缺失的模型列)
+#     sum_corr = daily_corrs[0]
+#     for c in daily_corrs[1:]:
+#         sum_corr = sum_corr.add(c, fill_value=0)
+        
+#     mean_corr_matrix = sum_corr / len(daily_corrs)
+#     return mean_corr_matrix
+def calc_mean_daily_corr(preds_df: pd.DataFrame) -> pd.DataFrame:
+    """计算每日截面相关性矩阵，并返回时间序列均值 (修复对角线 < 1 的 Bug)"""
+    daily_corrs = []
     for date, group in preds_df.groupby('TRADE_DT'):
-        if len(group) >= 10:  # 至少 10 只股票才计算当日相关性
-            # 剔除全 NaN 的列
+        if len(group) >= 10:
             valid_group = group.drop(columns=['TRADE_DT']).dropna(axis=1, how='all')
             if valid_group.shape[1] >= 2:
                 corr_mat = valid_group.corr(method='pearson')
                 daily_corrs.append(corr_mat)
-                
+    
     if not daily_corrs:
         logging.warning("⚠️ 无有效日期可计算相关性矩阵")
         return pd.DataFrame()
         
-    # 对所有日期的相关矩阵求和，然后除以天数 (处理可能缺失的模型列)
-    sum_corr = daily_corrs[0]
-    for c in daily_corrs[1:]:
+    # 🔑 核心修复：不能简单相加后除以总天数，需记录每对模型实际共同参与计算的天数
+    
+    # 1. 获取所有在任意一天出现过的模型名称
+    all_models = set()
+    for c in daily_corrs:
+        all_models.update(c.index)
+    all_models = sorted(list(all_models))
+    
+    # 2. 初始化累加器和计数器矩阵
+    sum_corr = pd.DataFrame(0.0, index=all_models, columns=all_models)
+    count_matrix = pd.DataFrame(0, index=all_models, columns=all_models)
+    
+    # 3. 遍历每日相关性矩阵进行累加
+    for c in daily_corrs:
+        # 累加相关性值 (缺失的填 0)
         sum_corr = sum_corr.add(c, fill_value=0)
+        # 累加有效计数 (c 中存在的元素计为 1，缺失的计为 0)
+        count_matrix = count_matrix.add(c.notna().astype(int), fill_value=0)
         
-    mean_corr_matrix = sum_corr / len(daily_corrs)
+    # 4. 计算均值：总和 / 有效天数 (避免除以 0)
+    mean_corr_matrix = sum_corr / count_matrix.replace(0, np.nan)
+    
+    # 对于从未共同出现过的模型对，填充为 0
+    mean_corr_matrix = mean_corr_matrix.fillna(0)
+    
     return mean_corr_matrix
 
 def plot_and_save_corr(corr_matrix: pd.DataFrame, dataset_name: str, out_dir: str, fig_dir: str):
