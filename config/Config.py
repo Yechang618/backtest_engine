@@ -20,8 +20,8 @@ class Config:
 
     # 🔑 新增：Label 类型切换配置
     # 可选值: 'return' (使用 label_{i}), 'sharpe' (使用 label_sp{i})
-    # LABEL_TYPE = 'sharpe'  # <--- 在这里切换 'return' 或 'sharpe'
-    LABEL_TYPE = 'return'
+    LABEL_TYPE = 'sharpe'  # <--- 在这里切换 'return' 或 'sharpe'
+    # LABEL_TYPE = 'return'
 
     def __init__(self):
         
